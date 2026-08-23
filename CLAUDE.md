@@ -1,0 +1,39 @@
+## Project
+DiskWatch — a free, open-source desktop app for macOS and Windows. It answers
+three questions about a disk: what's on it, is it protected, and what's safe to
+remove. Plus a scam-link checker in v4.
+
+## Stack
+- Electron (not Tauri), CommonJS
+- Vanilla HTML/CSS/JS in the renderer — no framework, no bundler
+- d3-hierarchy for the treemap, added later
+- `trash` npm package for all deletions, added later
+- electron-builder for packaging
+- Zero runtime dependencies beyond the above. Ask before adding any package.
+
+## Architecture
+- Main process (Node): lifecycle, IPC routing, filesystem, shell commands
+- Preload: narrow contextBridge surface. Never expose ipcRenderer directly.
+- Renderer (Chromium): UI only, no Node access
+- Disk scanning runs in a worker thread, never on the main thread
+
+## Non-negotiable
+- webPreferences always: contextIsolation true, nodeIntegration false,
+  sandbox true, webviewTag false. Never relax these.
+- No fs.unlink / fs.rm / rmdir on user data anywhere in this codebase.
+  Deletions go through the `trash` package only.
+- No network calls at all until v4, and then only to fetch blocklists.
+  No telemetry, no analytics, no crash reporting, no remote fonts, no CDNs.
+- System fonts only. Never load a webfont.
+- Cleanup only touches paths listed in src/main/cleaner/targets.json.
+- No security score, no threat counts, no urgency language in any UI copy.
+
+## Safe by default, adjustable in Advanced Settings
+Custom cleanup paths, select-all, scheduled cleaning, security score, and
+opt-in telemetry may all be exposed as settings later. They must ship OFF.
+Permanent deletion of scanned files and programmatic FileVault/BitLocker
+enabling stay out entirely, regardless of settings.
+
+## Build order
+v1 scan + treemap (read-only) → v2 security audit (read-only) →
+v3 cleanup (first writes) → v4 link checker
