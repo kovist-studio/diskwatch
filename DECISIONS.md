@@ -3,6 +3,37 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## P3 — Tree ownership: the worker prunes before the handoff (2026-08-23)
+
+**The worker owns the full tree; nothing else ever sees it.** The worker builds
+the complete graph, then prunes to a renderable subset (<= 5,000 nodes) *before*
+`postMessage`. Main and the renderer only ever receive the pruned tree.
+
+**Why in the worker, not in main.** Peak memory is at the worker->main handoff:
+`postMessage` structured-clones the tree, so for a moment two full copies exist
+(worker heap + main heap). Pruning in main happens *after* that clone — too late.
+Pruning in the worker eliminates the second copy entirely (and the future third
+copy that the treemap would need in the renderer). Measured on ~/Library
+(~749K nodes): peak RSS **1,071 MB -> 431 MB**. The worker then exits and its
+full-tree copy dies with it; main holds ~5 MB.
+
+**Pruning rule.** Within each directory, children below 0.1% of the parent's
+size collapse into one synthetic `(smaller items)` node (so every expanded
+directory's total reconciles exactly — verified: max error 0 bytes). A global
+best-first budget caps output at ~5,000 nodes, spending detail on the largest
+subtrees. Directories left unexpanded are marked `pruned: true` and keep their
+real `size` and `childCount`, so the UI can show there's more inside.
+
+**Zoom is a re-scan.** Drilling into a pruned directory is just
+`startScan(thatSubdir)` — no new machinery, and it never has to reconstruct or
+retain the full tree.
+
+**Deferred / rejected.** Dropping per-node `path` strings (build paths lazily
+from parents) is held for later: with this design it only affects the worker's
+transient peak and is self-contained enough to add without touching consumers.
+Structure-of-arrays + transferables is rejected here — it's the right call only
+north of ~5M nodes, and the wrong complexity at this scale.
+
 ## P3 — Disk scanner (2026-08-23)
 
 **Files omit the `children` array; only directories have one.** Skipping a
