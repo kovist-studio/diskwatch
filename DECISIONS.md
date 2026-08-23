@@ -3,6 +3,30 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## Supply chain — MIT + trademark, not a more restrictive license (2026-08-23)
+
+**Decision:** keep the source under MIT and protect the name/logo with a
+trademark policy, rather than adopting copyleft (GPL/AGPL) or going proprietary.
+
+**Why not something more restrictive:**
+
+- The threat we actually care about is *impersonation* — a trojaned build passed
+  off as "DiskWatch". A security/cleanup tool with filesystem access lives or
+  dies on that trust. **License restrictiveness does nothing about this:** no
+  license governs a project's *name*. A copyleft license can't stop someone
+  shipping malware called "DiskWatch"; only a trademark can.
+- Auditability is a feature. Users should be able to read exactly what a tool
+  that deletes files does. MIT maximizes openness and reuse; proprietary would
+  cut trust for no security gain.
+- Copyleft would restrict legitimate reuse of the code (our mission is "free,
+  open source") while still not buying the anti-impersonation protection we need.
+
+**So the protection is layered elsewhere:** trademark (forks must rebrand) + an
+official-downloads list + CI-generated SHA-256 checksums in the release notes.
+That keeps the *name* pointing at verified, official builds while the *code*
+stays maximally open. See [TRADEMARK.md](TRADEMARK.md), [SECURITY.md](SECURITY.md),
+and the README's "Official downloads".
+
 ## P3 — Tree ownership: the worker prunes before the handoff (2026-08-23)
 
 **The worker owns the full tree; nothing else ever sees it.** The worker builds

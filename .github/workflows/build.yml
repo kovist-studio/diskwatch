@@ -1,0 +1,103 @@
+name: build
+
+# Release builds. Artifacts AND their SHA-256 checksums are produced only here,
+# in CI — never generated or published from a developer machine. The checksums
+# are appended to the GitHub Release notes so users can verify their downloads.
+#
+# Hardening note: the actions below are pinned to major-version tags for
+# readability. For a stronger supply-chain posture, pin each to a full commit
+# SHA.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write # required to create/edit Releases
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Packaging (electron-builder) is wired up in the packaging phase; it
+      # emits the platform artifacts under dist/.
+      - run: npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: dist/**
+          if-no-files-found: error
+
+  release:
+    name: Checksum and release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate SHA-256 checksums (CI only)
+        working-directory: artifacts
+        run: |
+          # Checksum every artifact. This is the only place checksums are made.
+          find . -type f ! -name 'SHA256SUMS.txt' -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | sed 's|\./||' > SHA256SUMS.txt
+          echo '----- SHA256SUMS.txt -----'
+          cat SHA256SUMS.txt
+
+      - name: Create release and upload artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Idempotent: create the release with auto-generated notes if it
+          # doesn't exist yet.
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "$TAG" --generate-notes
+          # Attach every artifact, including the checksum file itself.
+          gh release upload "$TAG" artifacts/* --clobber
+
+      - name: Append checksums to release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          BODY="$(gh release view "$TAG" --json body --jq .body)"
+          # Don't double-append if this step runs again.
+          if printf '%s' "$BODY" | grep -q '## SHA-256 checksums'; then
+            echo 'Checksums already present in notes; skipping.'
+            exit 0
+          fi
+          {
+            printf '%s\n\n' "$BODY"
+            printf '## SHA-256 checksums\n\n'
+            printf 'Generated in CI. Verify your download matches:\n\n'
+            printf '```\n'
+            cat artifacts/SHA256SUMS.txt
+            printf '```\n'
+          } > release-notes.md
+          gh release edit "$TAG" --notes-file release-notes.md
