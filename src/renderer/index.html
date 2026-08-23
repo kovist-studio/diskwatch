@@ -8,8 +8,127 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DiskWatch</title>
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    DiskWatch
+    <div class="titlebar"></div>
+
+    <div class="app">
+      <nav class="rail" aria-label="Sections">
+        <div class="rail__brand">DiskWatch</div>
+        <div class="rail__tabs" role="tablist" aria-orientation="vertical">
+          <button
+            class="tab tab--active"
+            role="tab"
+            id="tab-scan"
+            data-tab="scan"
+            aria-selected="true"
+            aria-controls="view-scan"
+          >
+            Scan
+          </button>
+          <button
+            class="tab"
+            role="tab"
+            id="tab-security"
+            data-tab="security"
+            aria-selected="false"
+            aria-controls="view-security"
+            tabindex="-1"
+          >
+            Security
+          </button>
+          <button
+            class="tab"
+            role="tab"
+            id="tab-clean"
+            data-tab="clean"
+            aria-selected="false"
+            aria-controls="view-clean"
+            tabindex="-1"
+          >
+            Clean
+          </button>
+        </div>
+      </nav>
+
+      <main class="pane">
+        <section
+          class="view"
+          id="view-scan"
+          role="tabpanel"
+          aria-labelledby="tab-scan"
+          data-view="scan"
+        >
+          <header class="view__head">
+            <p class="microlabel" id="scan-status">Choose a folder to see what’s using space.</p>
+            <p class="pathline mono" id="scan-path"></p>
+          </header>
+
+          <div class="blockfield-wrap">
+            <canvas class="blockfield" id="blockfield"></canvas>
+          </div>
+
+          <footer class="view__foot">
+            <div class="stats">
+              <div class="stat">
+                <p class="microlabel">Files</p>
+                <p class="figure mono" id="stat-files">0</p>
+              </div>
+              <div class="stat">
+                <p class="microlabel">Size</p>
+                <p class="figure mono" id="stat-size">0 B</p>
+              </div>
+              <div class="stat">
+                <p class="microlabel">Progress</p>
+                <p class="figure mono" id="stat-pct">0%</p>
+              </div>
+            </div>
+            <div class="actions">
+              <button class="btn btn--primary" id="choose">Choose a folder</button>
+            </div>
+          </footer>
+        </section>
+
+        <section
+          class="view"
+          id="view-security"
+          role="tabpanel"
+          aria-labelledby="tab-security"
+          data-view="security"
+          hidden
+        >
+          <div class="empty">
+            <p class="microlabel">Security</p>
+            <h2 class="empty__title">See what’s protecting this disk.</h2>
+            <p class="empty__body">
+              This is where you’ll find out whether your disk is encrypted and what’s guarding it.
+              Coming in a later version.
+            </p>
+          </div>
+        </section>
+
+        <section
+          class="view"
+          id="view-clean"
+          role="tabpanel"
+          aria-labelledby="tab-clean"
+          data-view="clean"
+          hidden
+        >
+          <div class="empty">
+            <p class="microlabel">Clean</p>
+            <h2 class="empty__title">Reclaim space, safely.</h2>
+            <p class="empty__body">
+              This is where you’ll review caches and leftovers that are safe to remove. Nothing is
+              deleted outright — items go to the Trash. Coming in a later version.
+            </p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="blockfield.js"></script>
+    <script src="app.js"></script>
   </body>
 </html>
