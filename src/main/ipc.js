@@ -2,6 +2,7 @@
 
 const { ipcMain, dialog, shell } = require('electron');
 const os = require('node:os');
+const { startScan, cancelScan } = require('./scanner');
 
 // Channel names must match the preload's CH map.
 const CH = {
@@ -9,6 +10,7 @@ const CH = {
   chooseFolder: 'dialog:chooseFolder',
   scanStart: 'scan:start',
   scanCancel: 'scan:cancel',
+  scanProgress: 'scan:progress',
   reveal: 'shell:reveal',
 };
 
@@ -53,16 +55,18 @@ function registerIpcHandlers() {
     return true;
   });
 
-  // Stubs until the worker-thread scanner lands. Still validate the argument
-  // so the contract is enforced from day one.
-  ipcMain.handle(CH.scanStart, (_event, targetPath) => {
+  // Run a scan in the worker thread, streaming throttled progress back to the
+  // window that asked for it. Resolves with the done payload (tree + stats).
+  ipcMain.handle(CH.scanStart, (event, targetPath) => {
     assertNonEmptyString(targetPath, 'path');
-    throw new Error('scan:start not implemented');
+    return startScan(targetPath, (progress) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(CH.scanProgress, progress);
+      }
+    });
   });
 
-  ipcMain.handle(CH.scanCancel, () => {
-    throw new Error('scan:cancel not implemented');
-  });
+  ipcMain.handle(CH.scanCancel, () => cancelScan());
 }
 
 module.exports = { registerIpcHandlers };
