@@ -2,6 +2,7 @@
 
 const { app, BrowserWindow, shell, session } = require('electron');
 const path = require('node:path');
+const { registerIpcHandlers } = require('./ipc');
 
 const isDev = process.argv.includes('--dev');
 
@@ -64,6 +65,8 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
   });
+
+  registerIpcHandlers();
 
   createWindow();
 
