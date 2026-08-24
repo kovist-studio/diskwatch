@@ -3,6 +3,62 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## V3 — The allowlist is the design, and here is what it caught (2026-08-25)
+
+**Decision:** cleanup only ever touches paths written down in
+`src/main/cleaner/targets.json`. No pattern matching on names, no "anything
+called cache", no size or age heuristic that discovers targets on its own. The
+list is short on purpose and every entry was looked at individually.
+
+**This is expensive, and it earns it.** The obvious alternative — sweep
+`~/Library/Caches/*`, since that is what the directory is *for* — was in the
+first draft of this list, because it looks unarguable. Checking it against the
+development machine turned up this:
+
+```
+~/Library/Caches/JetBrains/PyCharmCE2024.1/LocalHistory
+```
+
+That is PyCharm's Local History: per-file edit history, the thing a person
+reaches for precisely when they did **not** commit. It is user-authored work,
+and it is filed under `Caches` because JetBrains chose that directory, not
+because the contents are disposable. Nothing about the path says so. A
+heuristic reading "it is under Caches, therefore it regenerates" is right about
+189 of the 190 entries on that machine and catastrophically wrong about the one
+that matters — and the person who loses it is a developer who was relying on it
+as their undo.
+
+**The general shape of the failure** is that the filesystem carries no
+statement of intent. A directory name is a convention, and conventions are
+followed by everyone except the one program that had somewhere else to put
+something. No rule derived from the path can tell authored work from derived
+work, because the distinction lives in the mind of whoever wrote the file. Only
+someone going and looking can tell, which is what an allowlist is: the record
+of having looked.
+
+So `~/Library/Caches/*` stayed, but with an `exclude` list and a note saying
+what was found and that it was verified rather than assumed. The same field
+does load-bearing work elsewhere: pip and Homebrew live inside that directory
+and are listed as separate entries, so without excluding them they would be
+counted and deleted twice.
+
+**Corollary — the file records what was rejected, and why.** `excluded` is not
+commentary. `C:\Windows.old` is the only copy of the previous install;
+`C:\Windows\Temp` and `SoftwareDistribution\Download` need administrator
+rights this app does not ask for anywhere, and two cache folders do not justify
+building an elevation story the security audit deliberately avoided;
+`CoreSimulator/Devices` holds every app and file installed on a simulator.
+Without the reasons written down, each of these is a plausible-looking
+addition that someone re-proposes in six months.
+
+**Corollary — a requirement in a comment is not a requirement.** The iOS backup
+entry has to expand to per-device backups showing name and date, and may only
+offer a backup when a newer one exists for the same device. That started as
+prose in a `note` field, where nothing enforces it. It is now an `expand`
+contract with `wholeTargetSelectable: false` and `ifUnsupported: "omit"` — if
+the per-device listing cannot be built, the entry does not ship rather than
+degrading into a single checkbox over someone's only copy of their phone.
+
 ## V2 — The Windows audit classifies on codes, never on messages (2026-08-25)
 
 **Decision:** no check is ever classified by reading an error *message*.

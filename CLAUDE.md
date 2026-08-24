@@ -25,6 +25,19 @@ remove. Plus a scam-link checker in v4.
   sandbox true, webviewTag false. Never relax these.
 - No fs.unlink / fs.rm / rmdir on user data anywhere in this codebase.
   Deletions go through the `trash` package only.
+- ONE exception, and it is exhaustive: emptying the Trash (`macos-trash`) and
+  the Recycle Bin (`windows-recycle-bin`). Those files have already been
+  classified as discarded by the person who discarded them, and neither bin
+  can be trashed a second time. No third id is ever added to this list.
+  The exception carries conditions, all of them binding:
+  - A separate function. It must NOT share a code path with trash-based
+    cleanup — no shared "delete" entry point, no boolean parameter selecting
+    permanence. Two call sites that cannot be confused for one another.
+  - A separate confirmation, naming the item count and the total size, and
+    using the word "permanently".
+  - Off by default, and never selected by a select-all.
+  This is the only irreversible operation in the app and it should read that
+  way at every layer: data, function name, and copy.
 - No network calls at all until v4, and then only to fetch blocklists.
   No telemetry, no analytics, no crash reporting, no remote fonts, no CDNs.
 - System fonts only. Never load a webfont.
