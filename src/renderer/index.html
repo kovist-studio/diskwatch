@@ -65,8 +65,16 @@
             <p class="pathline mono" id="scan-path"></p>
           </header>
 
-          <div class="blockfield-wrap">
-            <canvas class="blockfield" id="blockfield"></canvas>
+          <div class="field">
+            <div class="blockfield-wrap">
+              <canvas class="blockfield" id="blockfield"></canvas>
+            </div>
+            <p class="microlabel field__scale" id="scan-scale">1 block = 25 files</p>
+          </div>
+
+          <div class="reading" id="reading" hidden>
+            <span class="microlabel reading__label">Reading</span>
+            <span class="pathline mono" id="scan-current"></span>
           </div>
 
           <footer class="view__foot">
@@ -80,11 +88,12 @@
                 <p class="figure mono" id="stat-size">0 B</p>
               </div>
               <div class="stat">
-                <p class="microlabel">Progress</p>
-                <p class="figure mono" id="stat-pct">0%</p>
+                <p class="microlabel">Elapsed</p>
+                <p class="figure mono" id="stat-elapsed">0s</p>
               </div>
             </div>
             <div class="actions">
+              <button class="btn" id="cancel" hidden>Cancel</button>
               <button class="btn btn--primary" id="choose">Choose a folder</button>
             </div>
           </footer>

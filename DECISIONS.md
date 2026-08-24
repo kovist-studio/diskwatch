@@ -3,6 +3,55 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## P5 — The block field counts; it does not estimate (2026-08-24)
+
+**Decision:** no progress percentage anywhere in the scan UI. The block field
+is a *counter at a stated scale*: each block is a fixed quantum of files
+(starting at 25), blocks fill and stay filled, and when the grid would fill
+completely the quantum doubles and the field redraws at half density.
+
+**Why the percentage had to go.** A directory walk cannot know its total until
+it has finished — that is the whole shape of the problem. Any denominator is
+therefore invented, and the old bar exposed the invention: it wrapped at 100%
+and kept going. For a tool whose pitch is "read exactly what it does before you
+let it touch your disk", a number that resets to zero and starts again is worse
+than no number.
+
+**Why doubling, not a bigger grid or a moving scale.** Doubling keeps the two
+properties that make the field readable:
+
+- *It never wraps.* At a rescale the field halves — full to half full — so it
+  never returns to empty. The rescale is a coarsening, never a reset. Only the
+  quantum grows; it is never lowered, so a block that has been earned is never
+  taken back.
+- *It never claims a total.* The field says "at least this many files, at this
+  scale", and the label beside it (`1 BLOCK = 50 FILES`) states the scale, so
+  the reader can always recover the count.
+
+Doubling is applied in a `while` loop, not once: progress is batched every
+200ms, and a fast volume can cross several scales in a single message. A resize
+re-derives the scale for the same reason — a narrower window holds fewer blocks.
+
+**The field is deliberately never completely full.** The rescale triggers at
+`filled >= capacity`, so `filled < capacity` is an invariant rather than a
+near-miss. "Full" is a state that exists only long enough to become the next
+scale.
+
+**ELAPSED is on its own timer, not on scan progress.** That is the point of
+having it. When a single directory stalls, progress messages stop arriving —
+and a readout driven only by progress would freeze, which is exactly what a
+hung scan looks like. A wall clock that keeps counting next to a live path that
+has stopped moving says "slow"; both frozen would say "dead". Together with the
+currently-reading path, they are what distinguishes the two without inventing a
+total.
+
+**In-flight progress from a cancelled or superseded scan is dropped in main**
+(`scanner.js`), not filtered in the renderer. Starting a scan cancels the
+previous one, whose worker may still have messages queued; delivering them
+would walk the counts backwards. The rule is that only the scan that owns the
+readout is heard.
+
+
 ## Supply chain — MIT + trademark, not a more restrictive license (2026-08-23)
 
 **Decision:** keep the source under MIT and protect the name/logo with a

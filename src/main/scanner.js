@@ -76,6 +76,10 @@ function startScan(rootPath, onProgress) {
     worker.on('message', (msg) => {
       if (!msg) return;
       if (msg.type === 'progress') {
+        // A cancelled or superseded scan can still have messages in flight.
+        // Forwarding them would walk the renderer's counts backwards, so they
+        // stop here — the scan that owns the readout is the only one heard.
+        if (state.cancelRequested || state.settled) return;
         if (typeof onProgress === 'function') onProgress(msg);
       } else if (msg.type === 'done') {
         settle(resolve, msg);

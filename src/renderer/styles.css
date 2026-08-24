@@ -146,6 +146,14 @@ p {
 }
 
 /* The signature element. */
+.field {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .blockfield-wrap {
   flex: 1;
   min-height: 0;
@@ -159,6 +167,36 @@ p {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* States the block field's current scale. The field is a counter, not a
+   percentage, so this label is what makes it readable. */
+.field__scale {
+  transition: color 160ms ease;
+}
+
+/* Brief brass highlight when the quantum doubles, so the rescale reads as a
+   change of scale rather than as the field losing ground. */
+.field__scale--bump {
+  color: var(--signal);
+}
+
+/* Live path of the directory being walked. This is what distinguishes a slow
+   scan from a hung one, so it gets a line of its own. */
+.reading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.reading__label {
+  flex: none;
+}
+
+.reading .pathline {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ---------- Footer: stats + actions ---------- */
@@ -223,6 +261,15 @@ p {
 
 .btn:hover {
   border-color: var(--brass);
+}
+
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn[disabled]:hover {
+  border-color: var(--line);
 }
 
 .btn--primary {
