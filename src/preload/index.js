@@ -11,6 +11,7 @@ const CH = {
   scanCancel: 'scan:cancel',
   scanProgress: 'scan:progress',
   reveal: 'shell:reveal',
+  securityAudit: 'security:audit',
 };
 
 const api = {
@@ -42,6 +43,12 @@ const api = {
 
   // Resolves to true once the OS file manager has been asked to reveal the path.
   reveal: (targetPath) => ipcRenderer.invoke(CH.reveal, targetPath),
+
+  security: {
+    // Resolves to { platform, supported, checks[] }. Read-only: running this
+    // never changes a setting and never asks for elevation.
+    audit: () => ipcRenderer.invoke(CH.securityAudit),
+  },
 };
 
 // Expose exactly `window.api` and nothing else. ipcRenderer itself is never

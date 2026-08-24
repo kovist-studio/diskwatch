@@ -3,6 +3,7 @@
 const { ipcMain, dialog, shell } = require('electron');
 const os = require('node:os');
 const { startScan, cancelScan } = require('./scanner');
+const { runAudit, formatAudit } = require('./security');
 
 // Channel names must match the preload's CH map.
 const CH = {
@@ -12,6 +13,7 @@ const CH = {
   scanCancel: 'scan:cancel',
   scanProgress: 'scan:progress',
   reveal: 'shell:reveal',
+  securityAudit: 'security:audit',
 };
 
 // Everything arriving over IPC is untrusted input, even though we authored the
@@ -86,6 +88,20 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle(CH.scanCancel, () => cancelScan());
+
+  // Read-only security audit. No arguments to validate. It never changes a
+  // setting and never asks for elevation — checks that would need admin
+  // rights come back as 'unknown' with the reason.
+  //
+  // Runs only when asked. Nothing here fires on launch: an audit that greets
+  // you with warnings before you have asked anything is a nag, and this app
+  // does not nag.
+  ipcMain.handle(CH.securityAudit, async () => {
+    const audit = await runAudit();
+    // No UI yet — the console is the readout for this phase.
+    console.log(formatAudit(audit));
+    return audit;
+  });
 }
 
 module.exports = { registerIpcHandlers };
