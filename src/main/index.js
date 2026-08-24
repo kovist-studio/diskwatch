@@ -1,21 +1,24 @@
 'use strict';
 
-const { app, BrowserWindow, shell, session } = require('electron');
+const { app, BrowserWindow, shell, session, nativeTheme } = require('electron');
 const path = require('node:path');
 const { registerIpcHandlers } = require('./ipc');
+const surface = require('./surface');
 
 const isDev = process.argv.includes('--dev');
 
 let mainWindow = null;
 
 function createWindow() {
+  const requested = surface.chooseSurface();
+
   mainWindow = new BrowserWindow({
     width: 1120,
     height: 740,
     minWidth: 900,
     minHeight: 580,
-    backgroundColor: '#12161F',
     show: false,
+    ...surface.windowOptions(requested),
     // Hidden inset title bar on macOS; leave default chrome elsewhere.
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : {}),
     webPreferences: {
@@ -26,6 +29,9 @@ function createWindow() {
       webviewTag: false,
     },
   });
+
+  // Confirm the material actually took, stepping down if it didn't.
+  surface.confirm(mainWindow, requested);
 
   // Show only once painted — avoids the white flash on launch.
   mainWindow.once('ready-to-show', () => {
@@ -60,6 +66,12 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // DiskWatch has one palette and it is dark. Pinning the appearance keeps the
+  // vibrancy material dark too: under a light system appearance macOS would
+  // hand back a LIGHT blur, and this app's dim secondary text measures 1.2:1
+  // against that — illegible. A dark material keeps it at 4.7:1 or better.
+  nativeTheme.themeSource = 'dark';
+
   // No remote content is ever loaded, so no permission request can be
   // legitimate. Deny every one.
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {

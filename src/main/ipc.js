@@ -4,6 +4,7 @@ const { ipcMain, dialog, shell } = require('electron');
 const os = require('node:os');
 const { startScan, cancelScan } = require('./scanner');
 const { runAudit, formatAudit } = require('./security');
+const { getSurface } = require('./surface');
 
 // Channel names must match the preload's CH map.
 const CH = {
@@ -36,6 +37,9 @@ function registerIpcHandlers() {
     home: os.homedir(),
     electron: process.versions.electron,
     node: process.versions.node,
+    // Which window material the app actually got, so the renderer knows
+    // whether its chrome may be translucent. 'solid' means it may not.
+    surface: getSurface(),
   }));
 
   // Native folder picker. Returns an absolute path or null on cancel.

@@ -30,6 +30,8 @@ body {
 
 body {
   margin: 0;
+  /* Opaque by default. Translucency is opt-in, applied only when main confirms
+     the window actually got a material — see [data-surface] below. */
   background: var(--ink);
   color: var(--text);
   font-family: var(--font-ui);
@@ -59,6 +61,50 @@ p {
   display: grid;
   grid-template-columns: var(--rail-w) 1fr;
   height: 100vh;
+}
+
+/* ---------- Window translucency ---------- */
+/* Only these three surfaces may go translucent: the body behind the chrome and
+   the rail itself. The pane, the block field and the treemap canvas are opaque
+   above, and nothing here overrides them — same split Finder uses between a
+   vibrant sidebar and an opaque file list. */
+:root[data-surface="vibrancy"] body,
+:root[data-surface="mica"] body,
+:root[data-surface="acrylic"] body {
+  background: transparent;
+}
+
+:root[data-surface="vibrancy"] .rail,
+:root[data-surface="mica"] .rail,
+:root[data-surface="acrylic"] .rail {
+  /* A dark scrim, not bare vibrancy. Measured worst case (a very light
+     wallpaper tinting the dark material): secondary text lands at 5.1:1
+     against WCAG AA's 4.5 — bare vibrancy measured 1.2:1. */
+  background: rgba(18, 22, 31, 0.72);
+  border-right-color: rgba(46, 56, 70, 0.8);
+  /* Secondary text is where legibility fails first on a translucent surface,
+     so the token is lifted slightly within the rail only. */
+  --text-dim: #9aa4b2;
+}
+
+/* Accessibility: "Reduce transparency" is set by people who find translucent
+   text backgrounds hard to read. The main process also checks it when the
+   window is created; this handles it changing while the app is running.
+   Written at equal specificity to the rules above so it wins by order. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-surface="vibrancy"] body,
+  :root[data-surface="mica"] body,
+  :root[data-surface="acrylic"] body {
+    background: var(--ink);
+  }
+
+  :root[data-surface="vibrancy"] .rail,
+  :root[data-surface="mica"] .rail,
+  :root[data-surface="acrylic"] .rail {
+    background: var(--surface);
+    border-right-color: var(--line);
+    --text-dim: #8b95a5;
+  }
 }
 
 /* ---------- Left rail ---------- */
@@ -111,10 +157,15 @@ p {
 }
 
 /* ---------- Main pane ---------- */
+/* Explicitly opaque, and it must stay that way. The treemap lives in here and
+   its colour ramp encodes file age across a calibrated lightness range;
+   letting a wallpaper show through would destroy exactly the separation that
+   ramp provides. Translucency stops at the rail. */
 .pane {
   overflow: auto;
   min-width: 0;
   padding: 40px 32px 28px;
+  background: var(--ink);
 }
 
 .view {

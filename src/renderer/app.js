@@ -696,6 +696,13 @@
   api.platform().then((info) => {
     home = info && info.home ? info.home : '';
     isMac = !info || info.platform === 'darwin';
+    // Which window material the app actually got. 'solid' (or anything
+    // unrecognised) leaves every surface opaque, which is the default in CSS —
+    // the renderer never assumes translucency it wasn't granted.
+    const surface = info && info.surface;
+    if (surface === 'vibrancy' || surface === 'mica' || surface === 'acrylic') {
+      document.documentElement.dataset.surface = surface;
+    }
   });
 
   showEmpty();
