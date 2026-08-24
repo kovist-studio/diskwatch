@@ -30,7 +30,12 @@ parentPort.on('message', (msg) => {
 let filesSeen = 0;
 let dirsSeen = 0;
 let bytesSeen = 0;
-let errors = 0;
+// Two different facts, kept apart. `dirsSkipped` is a directory we could not
+// open at all — on macOS that is nearly always Full Disk Access, and it means
+// an entire subtree is missing from the totals, so the UI has to say so.
+// `entriesSkipped` is a single entry we could not stat: a much smaller hole.
+let dirsSkipped = 0;
+let entriesSkipped = 0;
 let lastPost = 0;
 
 // Only multi-linked inodes go in here (nlink > 1), so it stays small on a
@@ -44,8 +49,10 @@ function postProgress(currentPath, force) {
   parentPort.postMessage({
     type: 'progress',
     filesSeen,
+    dirsSeen,
     bytesSeen,
-    errors,
+    dirsSkipped,
+    entriesSkipped,
     path: currentPath,
   });
 }
@@ -70,8 +77,9 @@ async function walk(rootNode, rootDev) {
     try {
       dirHandle = await fsp.opendir(dirNode.path);
     } catch {
-      // Can't open the directory at all (EACCES/EPERM/...). Count and skip.
-      errors++;
+      // Can't open the directory at all (EACCES/EPERM/...). Everything below
+      // it is invisible to this scan, so it is counted separately and reported.
+      dirsSkipped++;
       continue;
     }
 
@@ -88,7 +96,7 @@ async function walk(rootNode, rootDev) {
         try {
           st = await fsp.lstat(childPath);
         } catch {
-          errors++;
+          entriesSkipped++;
           continue;
         }
 
@@ -119,8 +127,9 @@ async function walk(rootNode, rootDev) {
         postProgress(childPath, false);
       }
     } catch {
-      // Directory stream failed partway (e.g. EIO). Count and move on.
-      errors++;
+      // Directory stream failed partway (e.g. EIO). We got some of it, so this
+      // is a partial read rather than a wholly skipped directory.
+      entriesSkipped++;
     }
   }
 
@@ -274,7 +283,11 @@ function prune(realRoot) {
 
 async function main() {
   const rootStat = await fsp.lstat(rootPath); // fatal on failure -> rejects
-  if (!rootStat.isDirectory()) throw new Error(`not a directory: ${rootPath}`);
+  if (!rootStat.isDirectory()) {
+    const err = new Error(`not a directory: ${rootPath}`);
+    err.code = 'ENOTDIR';
+    throw err;
+  }
 
   const rootNode = makeNode(
     path.basename(rootPath) || rootPath,
@@ -295,8 +308,10 @@ async function main() {
       cancelled: true,
       tree: null,
       filesSeen,
+      dirsSeen,
       bytesSeen,
-      errors,
+      dirsSkipped,
+      entriesSkipped,
       pass1Ms: t1 - t0,
       pass2Ms: 0,
     });
@@ -318,8 +333,10 @@ async function main() {
     cancelled: false,
     tree,
     filesSeen,
+    dirsSeen,
     bytesSeen,
-    errors,
+    dirsSkipped,
+    entriesSkipped,
     nodesTotal: filesSeen + dirsSeen,
     nodesSent,
     pass1Ms: t1 - t0,
@@ -329,8 +346,11 @@ async function main() {
 }
 
 main().catch((err) => {
+  // The code is what the UI branches on to say what actually happened, so it
+  // travels explicitly — it would not survive as a property of a thrown Error.
   parentPort.postMessage({
     type: 'error',
+    code: err && err.code ? err.code : 'ESCANFAILED',
     message: err && err.message ? err.message : String(err),
   });
 });

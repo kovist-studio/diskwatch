@@ -12,17 +12,30 @@ const TERMINATE_GRACE_MS = 2000;
 
 let current = null; // { worker, settled, cancelRequested, terminateTimer }
 
+// Only used when a worker had to be force-terminated and never got to report
+// its own totals. The renderer treats these zeros as a floor, not as truth: it
+// keeps whatever the last real progress message said.
 function cancelledResult() {
   return {
     type: 'done',
     cancelled: true,
     tree: null,
     filesSeen: 0,
+    dirsSeen: 0,
     bytesSeen: 0,
-    errors: 0,
+    dirsSkipped: 0,
+    entriesSkipped: 0,
     pass1Ms: 0,
     pass2Ms: 0,
   };
+}
+
+// Errors reaching the renderer must say which failure this was, so the UI can
+// name it instead of shrugging. `code` is the discriminator throughout.
+function codedError(message, code) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
 }
 
 function cleanup(state) {
@@ -84,11 +97,13 @@ function startScan(rootPath, onProgress) {
       } else if (msg.type === 'done') {
         settle(resolve, msg);
       } else if (msg.type === 'error') {
-        settle(reject, new Error(msg.message));
+        settle(reject, codedError(msg.message, msg.code || 'ESCANFAILED'));
       }
     });
 
-    worker.on('error', (err) => settle(reject, err));
+    // The worker itself threw or failed to start — distinct from a scan that
+    // ran and hit an unreadable path.
+    worker.on('error', (err) => settle(reject, codedError(err.message, err.code || 'EWORKER')));
 
     // 'exit' commonly fires right after 'done' — the settled guard makes that
     // a no-op. It only carries meaning when the worker exits unsettled.
@@ -96,7 +111,7 @@ function startScan(rootPath, onProgress) {
       if (state.cancelRequested || code === 0) {
         settle(resolve, cancelledResult());
       } else {
-        settle(reject, new Error(`scan worker exited with code ${code}`));
+        settle(reject, codedError(`scan worker exited with code ${code}`, 'EWORKER'));
       }
     });
   });

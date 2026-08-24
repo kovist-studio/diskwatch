@@ -61,23 +61,42 @@
           data-view="scan"
         >
           <header class="view__head">
-            <p class="microlabel" id="scan-status">Choose a folder to see what’s using space.</p>
+            <p class="microlabel" id="scan-status">Nothing scanned yet</p>
             <p class="pathline mono" id="scan-path"></p>
           </header>
 
-          <div class="field">
-            <div class="blockfield-wrap">
-              <canvas class="blockfield" id="blockfield"></canvas>
+          <!-- Empty: what this does, and the one thing you can do next. -->
+          <div class="stage" id="stage-empty">
+            <div class="empty">
+              <h2 class="empty__title">See what’s using space.</h2>
+              <p class="empty__body">
+                Pick a folder and DiskWatch reads through it, then shows you its total
+                size and the largest things inside it — so you can tell what’s actually
+                taking up the room.
+              </p>
+              <p class="empty__body">
+                It only reads. Nothing is moved, changed, or deleted.
+              </p>
+              <p class="empty__hint microlabel">Choose a folder to start</p>
             </div>
-            <p class="microlabel field__scale" id="scan-scale">1 block = 25 files</p>
           </div>
 
-          <div class="reading" id="reading" hidden>
-            <span class="microlabel reading__label">Reading</span>
-            <span class="pathline mono" id="scan-current"></span>
-          </div>
+          <!-- Scanning: the block field and the live readout. -->
+          <div class="stage stage--scanning" id="stage-scanning" hidden>
+            <div class="field">
+              <div class="blockfield-wrap">
+                <canvas class="blockfield" id="blockfield"></canvas>
+              </div>
+              <p class="microlabel field__scale" id="scan-scale">1 block = 25 files</p>
+            </div>
 
-          <footer class="view__foot">
+            <div class="reading" id="reading" hidden>
+              <span class="microlabel reading__label">Reading</span>
+              <span class="pathline mono" id="scan-current"></span>
+            </div>
+
+            <p class="note" id="scan-note" hidden></p>
+
             <div class="stats">
               <div class="stat">
                 <p class="microlabel">Files</p>
@@ -91,10 +110,56 @@
                 <p class="microlabel">Elapsed</p>
                 <p class="figure mono" id="stat-elapsed">0s</p>
               </div>
+              <div class="stat">
+                <p class="microlabel">Skipped</p>
+                <p class="figure mono" id="stat-skipped">0</p>
+              </div>
             </div>
+          </div>
+
+          <!-- Results: the summary that replaces the field once a scan finishes. -->
+          <div class="stage stage--results" id="stage-results" hidden>
+            <div class="stats">
+              <div class="stat">
+                <p class="microlabel">Total size</p>
+                <p class="figure mono" id="res-size">0 B</p>
+              </div>
+              <div class="stat">
+                <p class="microlabel">Files</p>
+                <p class="figure mono" id="res-files">0</p>
+              </div>
+              <div class="stat">
+                <p class="microlabel">Folders</p>
+                <p class="figure mono" id="res-folders">0</p>
+              </div>
+              <div class="stat">
+                <p class="microlabel">Skipped</p>
+                <p class="figure mono" id="res-skipped">0</p>
+              </div>
+            </div>
+
+            <p class="note" id="res-note" hidden></p>
+
+            <div class="largest">
+              <p class="microlabel">Largest items</p>
+              <ul class="items" id="res-items"></ul>
+            </div>
+          </div>
+
+          <!-- Error: what happened, and what to do about it. -->
+          <div class="stage" id="stage-error" hidden>
+            <div class="empty">
+              <h2 class="empty__title" id="error-title"></h2>
+              <p class="empty__body" id="error-body"></p>
+            </div>
+          </div>
+
+          <footer class="view__foot">
             <div class="actions">
               <button class="btn" id="cancel" hidden>Cancel</button>
+              <button class="btn" id="retry" hidden>Try again</button>
               <button class="btn btn--primary" id="choose">Choose a folder</button>
+              <button class="btn btn--primary" id="again" hidden>Scan another folder</button>
             </div>
           </footer>
         </section>

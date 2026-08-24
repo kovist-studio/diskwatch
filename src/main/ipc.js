@@ -56,14 +56,33 @@ function registerIpcHandlers() {
   });
 
   // Run a scan in the worker thread, streaming throttled progress back to the
-  // window that asked for it. Resolves with the done payload (tree + stats).
-  ipcMain.handle(CH.scanStart, (event, targetPath) => {
+  // window that asked for it.
+  //
+  // A failed scan RESOLVES with { ok: false, code } rather than rejecting. A
+  // rejection would not survive the trip: Electron rewrites the message into
+  // "Error invoking remote method ..." and drops custom properties, so the
+  // error code — the one thing that lets the UI say which failure this was —
+  // would be gone by the time the renderer saw it. An unreadable folder is a
+  // scan outcome, not an exception.
+  //
+  // A malformed argument still throws. That is a caller bug, not an outcome,
+  // and the P2 boundary contract is unchanged.
+  ipcMain.handle(CH.scanStart, async (event, targetPath) => {
     assertNonEmptyString(targetPath, 'path');
-    return startScan(targetPath, (progress) => {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send(CH.scanProgress, progress);
-      }
-    });
+    try {
+      const done = await startScan(targetPath, (progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(CH.scanProgress, progress);
+        }
+      });
+      return { ok: true, ...done };
+    } catch (err) {
+      return {
+        ok: false,
+        code: err && err.code ? err.code : 'ESCANFAILED',
+        detail: err && err.message ? err.message : String(err),
+      };
+    }
   });
 
   ipcMain.handle(CH.scanCancel, () => cancelScan());

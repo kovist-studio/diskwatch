@@ -3,6 +3,37 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## P5 — ELAPSED runs on a wall clock, not on scan progress (2026-08-24)
+
+**Decision:** the ELAPSED figure is driven by its own `setInterval` against
+`Date.now()`, deliberately independent of `scan:progress` events.
+
+**Why it can't be derived from progress.** The obvious implementation — update
+the clock when a progress message arrives — fails in exactly the situation the
+clock exists for. Progress messages are emitted from inside the directory walk,
+so when the walk blocks (a slow network volume, a directory with a pathological
+number of entries, a stalled device) the messages stop. A progress-driven clock
+would freeze at that instant. The reading would be indistinguishable from a
+crashed scanner, and it would freeze *precisely* at the moment the user most
+needs to know that time is still passing.
+
+**What the pair says together.** ELAPSED and the currently-reading path are one
+instrument, not two figures:
+
+| ELAPSED | path | reads as |
+| --- | --- | --- |
+| rising | moving | working normally |
+| rising | frozen | slow — stuck on one directory, still alive |
+| frozen | frozen | the renderer itself is wedged |
+
+Only an independent clock can produce the middle row, which is the row that
+prevents someone force-quitting a scan that was going to finish.
+
+**Consequence.** ELAPSED measures wall-clock time from the moment the scan was
+started, including time spent blocked — which is the honest number. It is not
+"time spent scanning" and must never be recalculated from the sum of progress
+intervals.
+
 ## P5 — The block field counts; it does not estimate (2026-08-24)
 
 **Decision:** no progress percentage anywhere in the scan UI. The block field
@@ -37,44 +68,56 @@ re-derives the scale for the same reason — a narrower window holds fewer block
 near-miss. "Full" is a state that exists only long enough to become the next
 scale.
 
-**ELAPSED is on its own timer, not on scan progress.** That is the point of
-having it. When a single directory stalls, progress messages stop arriving —
-and a readout driven only by progress would freeze, which is exactly what a
-hung scan looks like. A wall clock that keeps counting next to a live path that
-has stopped moving says "slow"; both frozen would say "dead". Together with the
-currently-reading path, they are what distinguishes the two without inventing a
-total.
-
 **In-flight progress from a cancelled or superseded scan is dropped in main**
 (`scanner.js`), not filtered in the renderer. Starting a scan cancels the
 previous one, whose worker may still have messages queued; delivering them
 would walk the counts backwards. The rule is that only the scan that owns the
 readout is heard.
 
+## P5 — Skipped folders are counted apart, and shown while scanning (2026-08-24)
 
-## Supply chain — MIT + trademark, not a more restrictive license (2026-08-23)
+**Decision:** the worker's single `errors` counter is split into `dirsSkipped`
+(a directory that could not be opened at all) and `entriesSkipped` (one entry
+that could not be stat'd). `dirsSkipped` is surfaced as SKIPPED in the live
+readout *and* in the results summary.
 
-**Decision:** keep the source under MIT and protect the name/logo with a
-trademark policy, rather than adopting copyleft (GPL/AGPL) or going proprietary.
+**Why they are not one number.** They describe holes of wildly different size.
+A skipped directory removes an entire subtree from the totals — on `~/Library`
+that is 143 subtrees, and the reported 93 GB is 93 GB *of what could be read*.
+A failed `lstat` on one entry loses one entry. Adding them together produces a
+number that means nothing in particular.
 
-**Why not something more restrictive:**
+**Why it appears during the scan, not only in results.** A scan that quietly
+omits 143 directories and only mentions it at the end is the same failure as
+the fabricated percentage, inverted: the percentage asserted knowledge it did
+not have, and a hidden skip count withholds knowledge it does have. The live
+SKIPPED figure means the totals are never watched under a false impression of
+completeness.
 
-- The threat we actually care about is *impersonation* — a trojaned build passed
-  off as "DiskWatch". A security/cleanup tool with filesystem access lives or
-  dies on that trust. **License restrictiveness does nothing about this:** no
-  license governs a project's *name*. A copyleft license can't stop someone
-  shipping malware called "DiskWatch"; only a trademark can.
-- Auditability is a feature. Users should be able to read exactly what a tool
-  that deletes files does. MIT maximizes openness and reuse; proprietary would
-  cut trust for no security gain.
-- Copyleft would restrict legitimate reuse of the code (our mission is "free,
-  open source") while still not buying the anti-impersonation protection we need.
+**It is stated as normal, not as a failure.** Skipped folders are the expected
+state of an unprivileged app on macOS. The note names the number, says what is
+missing because of it, and then says why it is ordinary and where Full Disk
+Access lives — in body text, in body colour, with no alert styling. Compare
+CLAUDE.md: no threat counts, no urgency language.
 
-**So the protection is layered elsewhere:** trademark (forks must rebrand) + an
-official-downloads list + CI-generated SHA-256 checksums in the release notes.
-That keeps the *name* pointing at verified, official builds while the *code*
-stays maximally open. See [TRADEMARK.md](TRADEMARK.md), [SECURITY.md](SECURITY.md),
-and the README's "Official downloads".
+## P5 — A failed scan resolves; it does not reject (2026-08-24)
+
+**Decision:** `scan:start` resolves with `{ ok: false, code, detail }` when a
+scan fails. Only a malformed *argument* still throws.
+
+**Why not a rejection.** The renderer has to name the failure — "this folder is
+closed to DiskWatch" and "that folder isn't there any more" need different copy
+and different actions — and naming it requires the error code. A rejection
+cannot carry one: Electron rewrites a rejected handler's error into
+`Error invoking remote method 'scan:start': ...` and drops custom properties on
+the way, so `err.code` is gone by the time it reaches the renderer. Recovering
+it would mean regex-matching a message string we do not control — exactly the
+vagueness the error states exist to remove.
+
+**The distinction being drawn** is between an *outcome* and a *bug*. An
+unreadable folder is a normal, expected result of asking to read a disk, and it
+resolves. A caller passing a non-string path is a programmer error and still
+rejects, so P2's validation contract is unchanged.
 
 ## P3 — Tree ownership: the worker prunes before the handoff (2026-08-23)
 

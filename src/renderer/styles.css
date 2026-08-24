@@ -145,6 +145,22 @@ p {
   text-overflow: ellipsis;
 }
 
+/* ---------- Stages ---------- */
+/* Exactly one is visible at a time; app.js's setStage is the only thing that
+   decides which. */
+.stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stage--results {
+  overflow: auto;
+  gap: 22px;
+}
+
 /* The signature element. */
 .field {
   flex: 1;
@@ -231,6 +247,73 @@ p {
   gap: 10px;
 }
 
+/* A statement of fact about the scan, not a warning. Sized as body text and
+   coloured like body text: skipped folders are normal. */
+.note {
+  color: var(--text-dim);
+  font-size: 13px;
+  max-width: 76ch;
+}
+
+/* ---------- Results ---------- */
+.largest {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.item {
+  display: grid;
+  /* Name takes the slack; size and action stay put so the column reads down. */
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.item:last-child {
+  border-bottom: 0;
+}
+
+.item__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item__size {
+  color: var(--brass);
+  font-size: 13px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.item__reveal {
+  /* Present but quiet until the row is under the pointer. */
+  opacity: 0;
+  transition: opacity 120ms ease, border-color 120ms ease;
+}
+
+.item:hover .item__reveal,
+.item__reveal:focus-visible {
+  opacity: 1;
+}
+
+.items__none {
+  color: var(--text-dim);
+  padding: 9px 4px;
+}
+
 /* Micro-labels. */
 .microlabel {
   text-transform: uppercase;
@@ -280,6 +363,17 @@ p {
   background: rgba(201, 184, 150, 0.12);
 }
 
+.btn--ghost {
+  background: transparent;
+  color: var(--text-dim);
+  padding: 5px 12px;
+  font-size: 13px;
+}
+
+.btn--ghost:hover {
+  color: var(--text);
+}
+
 /* ---------- Empty states ---------- */
 .empty {
   height: 100%;
@@ -301,6 +395,12 @@ p {
 
 .empty__body {
   color: var(--text-dim);
+}
+
+/* The one action available, named where the eye already is. */
+.empty__hint {
+  margin-top: 6px;
+  color: var(--brass);
 }
 
 /* ---------- Quality floor ---------- */
