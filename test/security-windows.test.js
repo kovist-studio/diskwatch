@@ -10,30 +10,45 @@ const win = require('../src/main/security/windows');
 
 const STATUSES = new Set(['pass', 'fail', 'unknown', 'na']);
 
-// --- Error shapes, exactly as the real machine produced them -----------------
+// --- Error shapes, as the real machine produced them -------------------------
 
-// Get-BitLockerVolume, non-elevated. TWO errors: the CIM query is refused,
-// and then a downstream "no BitLocker volume attached" which is a consequence
-// of the refusal, not a finding.
-const BITLOCKER_DENIED_KO = [
-  {
-    category: 'PermissionDenied',
-    fqid: 'HRESULT 0x80041003,Microsoft.PowerShell.Commands.GetCimInstanceCommand',
-    exception: 'Microsoft.Management.Infrastructure.CimException',
-    message: '액세스가 거부되었습니다.',
-  },
-  {
-    category: 'NotSpecified',
-    fqid: 'Microsoft.PowerShell.Commands.WriteErrorException,Get-Win32EncryptableVolumeInternal',
-    exception: 'System.Runtime.InteropServices.COMException',
-    message: '에 연결된 BitLocker 볼륨이 없습니다.',
-  },
+// Non-elevated Get-BitLockerVolume raises TWO errors, and they contradict
+// each other. Read on its own, either one gives a different answer:
+//
+//   0x80070490  ERROR_NOT_FOUND       "no BitLocker volume"  -- an answer
+//   0x80041003  WBEM_E_ACCESS_DENIED  "access is denied"     -- a refusal
+//
+// A machine that refuses to tell us cannot also be telling us there is
+// nothing there, so the refusal wins outright. The two are kept as separate
+// named constants because their ORDER must be free to vary in the tests --
+// nothing in the parser may depend on it.
+const BITLOCKER_NOT_FOUND_KO = {
+  category: 'NotSpecified',
+  fqid: 'Microsoft.PowerShell.Commands.WriteErrorException,Get-Win32EncryptableVolumeInternal',
+  exception: 'System.Runtime.InteropServices.COMException',
+  message: '에 연결된 BitLocker 볼륨이 없습니다.',
+};
+
+const BITLOCKER_ACCESS_DENIED_KO = {
+  category: 'PermissionDenied',
+  fqid: 'HRESULT 0x80041003,Microsoft.PowerShell.Commands.GetCimInstanceCommand',
+  exception: 'Microsoft.Management.Infrastructure.CimException',
+  message: '액세스가 거부되었습니다.',
+};
+
+// $Error is newest-first, and this is the order the probe printed them in:
+// the downstream "no volume" first, the refusal that caused it second. The
+// wrong answer is the one sitting at index 0.
+const BITLOCKER_DENIED_KO = [BITLOCKER_NOT_FOUND_KO, BITLOCKER_ACCESS_DENIED_KO];
+
+// Paired by hand rather than by index, so reordering the array above can
+// never silently swap which message belongs to which error.
+const english = (error, message) => ({ ...error, message });
+
+const BITLOCKER_DENIED_EN = [
+  english(BITLOCKER_NOT_FOUND_KO, 'No BitLocker volume is attached to.'),
+  english(BITLOCKER_ACCESS_DENIED_KO, 'Access is denied.'),
 ];
-
-const BITLOCKER_DENIED_EN = BITLOCKER_DENIED_KO.map((e, i) => ({
-  ...e,
-  message: i === 0 ? 'Access is denied.' : 'No BitLocker volume is attached to.',
-}));
 
 const SECUREBOOT_DENIED_KO = [
   {
@@ -45,7 +60,7 @@ const SECUREBOOT_DENIED_KO = [
 ];
 
 const SECUREBOOT_DENIED_EN = [
-  { ...SECUREBOOT_DENIED_KO[0], message: 'Unable to set proper privileges. Access was denied.' },
+  english(SECUREBOOT_DENIED_KO[0], 'Unable to set proper privileges. Access was denied.'),
 ];
 
 const env = (data, errors = []) => ({ data, errors });
@@ -61,10 +76,37 @@ test('BitLocker: a permission failure is never reported as unencrypted', async (
   });
 
   await t.test('the downstream error alone must not be read as "no BitLocker"', () => {
-    // This is the whole trap: read on its own, the second error looks exactly
-    // like a machine that has no BitLocker volumes. It must not win.
+    // This is the whole trap: read on its own, the ERROR_NOT_FOUND looks
+    // exactly like a machine that has no BitLocker volumes. It must not win.
     const r = win.parseBitLocker(env([], BITLOCKER_DENIED_KO));
     assert.equal(r.status, 'unknown', 'permission must outrank an empty volume list');
+  });
+
+  await t.test('reading only the first error gives the wrong answer', () => {
+    // The two errors disagree, and the probe put the wrong one first. Shown
+    // side by side: alone, ERROR_NOT_FOUND is a legitimate 'na'; together
+    // with the refusal that produced it, that same 'na' is a false negative.
+    assert.equal(win.parseBitLocker(env([], [BITLOCKER_NOT_FOUND_KO])).status, 'na');
+    assert.equal(win.parseBitLocker(env([], BITLOCKER_DENIED_KO)).status, 'unknown');
+  });
+
+  await t.test('the refusal wins whichever order the two errors arrive in', () => {
+    // $Error is newest-first today. Nothing guarantees that stays true across
+    // Windows builds, so the cascade must scan, never index.
+    const asProbed = win.parseBitLocker(env(null, [BITLOCKER_NOT_FOUND_KO, BITLOCKER_ACCESS_DENIED_KO]));
+    const reversed = win.parseBitLocker(env(null, [BITLOCKER_ACCESS_DENIED_KO, BITLOCKER_NOT_FOUND_KO]));
+    assert.deepEqual(asProbed, reversed);
+    assert.equal(asProbed.status, 'unknown');
+  });
+
+  await t.test('ERROR_NOT_FOUND is not mistaken for an access-denied HRESULT', () => {
+    // 0x80070490 is a real answer from the Win32 layer, one digit-group away
+    // from 0x80070005 which is a refusal. Only the refusals count.
+    assert.equal(win.hasPermissionDenied([BITLOCKER_NOT_FOUND_KO]), false);
+    assert.equal(
+      win.hasPermissionDenied([{ category: 'NotSpecified', fqid: 'HRESULT 0x80070490,Foo', exception: '', message: '' }]),
+      false,
+    );
   });
 
   await t.test('permission wins even if a volume list somehow came back', () => {
@@ -81,7 +123,7 @@ test('BitLocker: a permission failure is never reported as unencrypted', async (
   });
 
   await t.test('without a permission error, an empty list is genuinely n/a', () => {
-    const r = win.parseBitLocker(env([], [BITLOCKER_DENIED_KO[1]]));
+    const r = win.parseBitLocker(env([], [BITLOCKER_NOT_FOUND_KO]));
     assert.equal(r.status, 'na');
   });
 
@@ -183,6 +225,38 @@ test('Microsoft Defender', async (t) => {
     assert.equal(win.parseDefender(defender({ signatureAgeDays: win.SIGNATURE_STALE_DAYS + 1 })).status, 'fail');
   });
 
+  await t.test('the UInt32 sentinel is reported as no age, never as an age', () => {
+    // AntivirusSignatureAge is a UInt32, and Defender fills it with all ones
+    // when it has no update to date from. 4294967295 is not "definitions are
+    // eleven million years old"; it is Defender saying it does not know.
+    const r = win.parseDefender(defender({ signatureAgeDays: 4294967295 }));
+    assert.equal(r.status, 'pass', 'protection is demonstrably on; only the age is missing');
+    assert.doesNotMatch(r.detail, /\d{5,}/, 'a sentinel must never be rendered as a number of days');
+
+    // The copy has three jobs: say what IS known, say plainly what is not,
+    // and send the reader somewhere that has the answer.
+    assert.match(r.detail, /real-time protection/i, 'must still say protection is running');
+    assert.match(r.detail, /did not report how old/i, 'must name what is missing');
+    assert.match(r.detail, /Windows Security/, 'must point at where the answer lives');
+  });
+
+  await t.test('a large but genuine age is still an age', () => {
+    const r = win.parseDefender(defender({ signatureAgeDays: 400 }));
+    assert.equal(r.status, 'fail');
+    assert.match(r.detail, /400 days old/);
+  });
+
+  await t.test('the sentinel boundary, and what is not a reading at all', () => {
+    const limit = win.SIGNATURE_AGE_SENTINEL_DAYS;
+    assert.equal(win.signatureAgeDays(0), 0);
+    assert.equal(win.signatureAgeDays(limit - 1), limit - 1);
+    assert.equal(win.signatureAgeDays(limit), null);
+    assert.equal(win.signatureAgeDays(4294967295), null, 'the all-ones UInt32');
+    assert.equal(win.signatureAgeDays(-1), null, 'a UInt32 is never negative, so this is corruption');
+    assert.equal(win.signatureAgeDays(null), null);
+    assert.equal(win.signatureAgeDays('7'), null, 'a string is not an age');
+  });
+
   await t.test('a missing Defender module is unknown, never a pass or a fail', () => {
     const r = win.parseDefender(env(null, [{ category: 'ObjectNotFound', fqid: 'CommandNotFoundException',
       exception: 'System.Management.Automation.CommandNotFoundException', message: '용어가 인식되지 않습니다' }]));
@@ -259,6 +333,8 @@ test('drive health across N disks', async (t) => {
   await t.test('a single disk works too (PowerShell serialises it as an object)', () => {
     // ConvertTo-Json turns a one-element array into a bare object, so a
     // one-disk machine produces a different JSON shape from a two-disk one.
+    // MODELLED, NOT OBSERVED: the probe machine has two disks, so this shape
+    // has never actually come off real hardware. toArray covers it either way.
     const r = win.parseDisks(env(REAL[0]));
     assert.equal(r.status, 'pass');
     assert.match(r.detail, /^The drive reports healthy/);
@@ -309,6 +385,18 @@ test('Secure Boot', async (t) => {
     const off = win.parseSecureBoot(env({ enabled: false }));
     assert.equal(off.status, 'fail');
     assert.match(off.detail, /firmware settings/i);
+  });
+
+  await t.test('any one of the three refusal signals is enough on its own', () => {
+    // The real non-elevated error carries all three at once: the
+    // PermissionDenied category, HRESULT 0x80070005, and
+    // UnauthorizedAccessException. None of them may be load-bearing alone.
+    const byCategory = [{ category: 'PermissionDenied', fqid: 'Confirm-SecureBootUEFI', exception: '', message: '한국어' }];
+    const byHresult = [{ category: 'NotSpecified', fqid: 'HRESULT 0x80070005,Confirm-SecureBootUEFI', exception: '', message: '한국어' }];
+    const byType = [{ category: 'NotSpecified', fqid: 'Confirm-SecureBootUEFI', exception: 'System.UnauthorizedAccessException', message: '한국어' }];
+    for (const errs of [byCategory, byHresult, byType]) {
+      assert.equal(win.parseSecureBoot(env(null, errs)).status, 'unknown', JSON.stringify(errs));
+    }
   });
 
   await t.test('a legacy BIOS machine is n/a, not a failure', () => {
@@ -430,6 +518,55 @@ test('no check copy contains a score, a count, or urgency language', async () =>
     assert.doesNotMatch(c.label || '', banned, `${c.id} label`);
     assert.doesNotMatch(c.detail, banned, `${c.id} detail: ${c.detail}`);
   }
+});
+
+test('no error message text ever reaches the copy the user reads', async () => {
+  // Rule 1 of windows.js, asserted end to end rather than parser by parser.
+  // The messages the real machine produced are all Korean; if any of them
+  // ever leaked into a detail, a Korean user would read a half-translated
+  // sentence and an English one would read mojibake.
+  const messages = [
+    BITLOCKER_NOT_FOUND_KO.message,
+    BITLOCKER_ACCESS_DENIED_KO.message,
+    SECUREBOOT_DENIED_KO[0].message,
+  ];
+  const exec = async () => ({
+    stdout: JSON.stringify(env(null, [...BITLOCKER_DENIED_KO, ...SECUREBOOT_DENIED_KO])),
+    stderr: '',
+    error: null,
+  });
+
+  const checks = await win.audit(exec);
+  for (const c of checks) {
+    assert.doesNotMatch(c.detail, /[\uAC00-\uD7AF]/, `${c.id} leaked Hangul: ${c.detail}`);
+    for (const m of messages) {
+      assert.ok(!c.detail.includes(m), `${c.id} quoted an error message verbatim`);
+    }
+  }
+});
+
+test('the queries keep the widths and the enum names Windows actually uses', async (t) => {
+  const bodyOf = (id) => win.CHECK_SPECS.find((spec) => spec.id === id).body;
+
+  await t.test('AntivirusSignatureAge is a UInt32 and must not be cast to Int32', () => {
+    // [int] on the all-ones sentinel throws, and buildScript swallows the
+    // throw — so a single unreadable field would take AntivirusEnabled and
+    // RealTimeProtectionEnabled down with it and degrade the whole check to
+    // 'unknown'. [int64] holds every UInt32 there is.
+    const body = bodyOf('defender');
+    assert.doesNotMatch(body, /\[int\]\s*\$s\.AntivirusSignatureAge/);
+    assert.match(body, /\[int64\]\s*\$s\.AntivirusSignatureAge/);
+  });
+
+  await t.test('GpoBoolean is kept as its name, never as its number', () => {
+    // Confirmed on the real machine: the enum names are False, True and
+    // NotConfigured, and [int] on True gives 1 — so the values run 0, 1, 2.
+    // NotConfigured being 2 is exactly why a numeric or boolean cast would
+    // read an unset profile as "on".
+    const body = bodyOf('firewall');
+    assert.match(body, /\[string\]\$_\.Enabled/);
+    assert.doesNotMatch(body, /\[bool\]\$_\.Enabled|\[int[0-9]*\]\$_\.Enabled/);
+  });
 });
 
 test('the PowerShell it runs cannot prompt, and round-trips through base64', () => {

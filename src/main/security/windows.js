@@ -25,6 +25,19 @@ const DEFAULT_TIMEOUT_MS = 20000;
 // Microsoft treats definitions older than this as out of date.
 const SIGNATURE_STALE_DAYS = 7;
 
+// AntivirusSignatureAge is a UInt32, not an Int32 — confirmed on real
+// hardware. Two consequences, both handled rather than assumed away:
+//
+//   - PowerShell must not cast it with [int]. Defender fills the field with an
+//     all-ones sentinel (4294967295) when it has no update to date from, and
+//     [int] on that throws an overflow, which would take the whole Defender
+//     envelope down with it and lose AntivirusEnabled too. [int64] holds every
+//     UInt32 there is, so the cast can never throw.
+//   - The sentinel is not an age. Anything past a human lifetime is Defender
+//     saying "no idea", and is reported as unreported rather than rendered as
+//     "definitions are 4294967295 days old".
+const SIGNATURE_AGE_SENTINEL_DAYS = 36500; // a hundred years
+
 // Deep links into the Windows Security app and Settings. Unlike the macOS
 // pane identifiers, these could not be verified on the machine this was
 // written on — there is no Windows install here.
@@ -92,6 +105,12 @@ function hasNotSupported(errors) {
   return toArray(errors).some((e) => e && NOT_SUPPORTED_EXCEPTION.test(e.exception || ''));
 }
 
+// A reading, or null when Defender reported a sentinel instead of an age.
+function signatureAgeDays(value) {
+  if (!Number.isFinite(value) || value < 0) return null;
+  return value < SIGNATURE_AGE_SENTINEL_DAYS ? value : null;
+}
+
 // ---------- Parsers ----------
 // Pure functions of the JSON envelope. Return { status, detail }, or null when
 // the envelope is not recognisable — which hands over to failure reporting
@@ -127,11 +146,17 @@ function parseDefender(envelope) {
     };
   }
 
-  const age = Number.isFinite(data.signatureAgeDays) ? data.signatureAgeDays : null;
+  const age = signatureAgeDays(data.signatureAgeDays);
   if (age === null) {
+    // Protection is observably on; only the age is missing. That is a gap in
+    // what Defender reported, not a finding about the machine, so it stays a
+    // pass and points at the pane that holds the real answer. Phrased about
+    // the age rather than the update itself: the timestamp may well be
+    // present, it is the age field that came back as a sentinel.
     return {
       status: 'pass',
-      detail: 'On, with real-time protection. The age of its definitions was not reported.',
+      detail:
+        'On, with real-time protection. Defender did not report how old its definitions are. Windows Security shows when they last updated.',
     };
   }
   if (age > SIGNATURE_STALE_DAYS) {
@@ -435,7 +460,7 @@ const CHECK_SPECS = [
     $data = [pscustomobject]@{
       antivirusEnabled = [bool]$s.AntivirusEnabled
       realtimeEnabled  = [bool]$s.RealTimeProtectionEnabled
-      signatureAgeDays = [int]$s.AntivirusSignatureAge
+      signatureAgeDays = [int64]$s.AntivirusSignatureAge
       signatureUpdated = $(if ($s.AntivirusSignatureLastUpdated -ne $null) { $s.AntivirusSignatureLastUpdated.ToUniversalTime().ToString('o') } else { $null })
     }
   }`,
@@ -540,6 +565,7 @@ module.exports = {
   hasPermissionDenied,
   hasCommandMissing,
   hasNotSupported,
+  signatureAgeDays,
   toArray,
   joinList,
   buildScript,
@@ -547,4 +573,5 @@ module.exports = {
   CHECK_SPECS,
   LINK,
   SIGNATURE_STALE_DAYS,
+  SIGNATURE_AGE_SENTINEL_DAYS,
 };

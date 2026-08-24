@@ -63,7 +63,7 @@ RunCheck 'defender' {
     [pscustomobject]@{
       antivirusEnabled = [bool]$s.AntivirusEnabled
       realtimeEnabled  = [bool]$s.RealTimeProtectionEnabled
-      signatureAgeDays = [int]$s.AntivirusSignatureAge
+      signatureAgeDays = [int64]$s.AntivirusSignatureAge
       signatureUpdated = $(if ($s.AntivirusSignatureLastUpdated -ne $null) { $s.AntivirusSignatureLastUpdated.ToUniversalTime().ToString('o') } else { $null })
     }
   }
