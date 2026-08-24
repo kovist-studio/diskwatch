@@ -20,7 +20,7 @@
 
 const PLATFORMS = {
   darwin: () => require('./macos'),
-  // win32 lands next phase; adding it here is the only wiring it needs.
+  win32: () => require('./windows'),
 };
 
 async function runAudit() {
@@ -30,10 +30,7 @@ async function runAudit() {
       platform: process.platform,
       supported: false,
       checks: [],
-      note:
-        process.platform === 'win32'
-          ? 'The Windows security audit arrives in the next phase.'
-          : `DiskWatch does not have a security audit for ${process.platform}.`,
+      note: `DiskWatch does not have a security audit for ${process.platform}.`,
     };
   }
   const platformModule = load();
