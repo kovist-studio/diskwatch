@@ -6,7 +6,10 @@ remove. Plus a scam-link checker in v4.
 ## Stack
 - Electron (not Tauri), CommonJS
 - Vanilla HTML/CSS/JS in the renderer — no framework, no bundler
-- d3-hierarchy for the treemap, added later
+- d3-hierarchy for the treemap (added P6). No bundler and a sandboxed renderer
+  means it loads as a plain script from `src/renderer/vendor/`, copied verbatim
+  from node_modules — unminified so it stays readable. `npm run verify:vendor`
+  checks the copy still matches; `npm run sync:vendor` refreshes it.
 - `trash` npm package for all deletions, added later
 - electron-builder for packaging
 - Zero runtime dependencies beyond the above. Ask before adding any package.

@@ -3,6 +3,127 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## P6 — The treemap (2026-08-24)
+
+**Decision:** a squarified treemap drawn to the same canvas the block field
+uses, replacing the finished-scan summary list.
+
+### Why a treemap replaces the "largest items" list
+
+The list answered "what are the ten biggest things here". The treemap answers
+"where did 93 GB go" — including the case the list is worst at, where no single
+item is large but a thousand small ones together are. Area is the answer, and
+area is what a treemap draws.
+
+The summary figures (total size, files, folders, skipped) and the skipped-folder
+note are kept. A treemap shows none of them, and the skipped note is a
+truthfulness requirement, not a decoration.
+
+### Canvas, not SVG
+
+The pruned tree carries up to 5,000 nodes. As SVG that is 5,000 live DOM
+elements to style, hit-test, and reflow, and every hover re-enters the DOM's
+own hit-testing. As canvas it is one element and a loop of `fillRect` calls,
+with hit-testing done by comparing four numbers per node. Measured: layout plus
+a full repaint of the real ~/Library tree is **33ms**, and a hover scan of all
+5,000 nodes is a few thousand comparisons.
+
+### How squarify works, and why it isn't just "area = size"
+
+Any treemap makes area proportional to size. The hard part is *shape*: a
+1000x1 sliver and a 32x32 square have the same area, but only one can be seen,
+labelled, or clicked.
+
+The naive algorithm ("slice and dice") alternates direction by depth: cut the
+parent into vertical strips, cut each strip into horizontal bands, and so on.
+It is trivial and it produces slivers — measured on the same real data, its
+median rectangle had an **aspect ratio of 180:1** against squarify's **1.5:1**.
+
+Squarify is greedy. It fills the rectangle one *row* at a time, laying children
+into the current row in descending size order. Before adding each child it asks:
+*does adding this improve the worst aspect ratio in this row, or make it worse?*
+If it improves, add it. If it makes it worse, close the row, and start a new one
+in the space that remains. Rows run along the shorter side of the remaining
+space, which is what keeps each row's cells near-square.
+
+The greedy choice is the whole trick, and it is worth stating why it works: a
+row's cells all share one thickness, so adding another item makes the row
+thicker while making every cell in it narrower. The first few additions help —
+a thick short row of one item is a bad sliver — and past a point they hurt.
+That turning point is a local minimum you can detect with only the current row
+in hand, which is why the algorithm needs no lookahead and runs in one pass.
+
+It is a heuristic, not an optimum: squarify makes no claim to the best possible
+layout, only a good one, cheaply. The **13:1 worst case** in our own data is
+real and is the price. It also does not preserve order — neighbouring
+rectangles mean nothing — which is the trade it makes to get shape.
+
+### Sizing: why a plain `.sum()` would be wrong
+
+The worker already aggregates `size` onto directories. Handing that to d3's
+`.sum(d => d.size)` counts every byte twice: once in the file, once in each
+ancestor. Verified — on ~/Library a naive sum reports well over double the
+true total.
+
+So the value function asks whether a directory's children are *present in this
+tree*. If they are, the directory contributes 0 and takes its value from them.
+If it is a leaf here — pruned, or genuinely empty — it contributes its own
+`size`, which is the only surviving record of what is inside it. With this, the
+treemap's root value equals the scanner's `bytesSeen` exactly.
+
+The children accessor branches on `type === 'dir'`, never on whether `children`
+is truthy: P3 established that files omit the array entirely, and the shape of
+the data should stay explicit at every consumer.
+
+### Padding must not become a second pruning
+
+A flat 1px gap between siblings is legible on big rectangles and fatal on small
+ones — d3 collapses a rectangle whose padding exceeds its size. Measured with a
+flat 1px: **1,907 of 4,760 rectangles collapsed to nothing on ~/Library, and
+2,793 of 3,492 on ~/Downloads**. The worker already decided what was worth
+showing; padding silently discarding 40-80% of it is the renderer overruling
+that decision invisibly.
+
+So the gap is spent only where the average child can survive it (area per child
+above ~120px²). That recovers most of them — 4,452 of 4,760 drawable — and, as
+a side effect, *improves* the median aspect ratio, because unpadded small cells
+keep their proportions. What remains lost is genuinely sub-pixel: on
+~/Downloads, 9.9 GB is dominated by a handful of large files, so thousands of
+small ones are truly too small to draw. That is what zoom is for.
+
+### Colour is monochromatic on purpose
+
+Six categories — media, documents, code, other, caches, system — at one hue
+(the brass 40°), separated only by lightness, lighter meaning more likely to be
+something the user chose to keep. The map should read as one material with
+denser and lighter regions, not as a chart with six competing colours. A
+categorical rainbow would also imply the categories matter more than the sizes,
+which is backwards: the sizes are the finding.
+
+Anything under a cache directory is a cache whatever its extension — a `.png`
+inside `Caches` is not a photo anyone chose to keep.
+
+### Two things that are not files get their own treatment
+
+- **`(smaller items)`** aggregates are hatched. They are a rollup of hundreds
+  of things, and at a glance they must never read as one large file.
+- **Pruned directories** get a dashed edge: real contents exist that are not in
+  this tree, and the dashed boundary says it is one you can cross.
+
+### Zoom is a re-scan, so the trail is the only history
+
+P3 established that drilling in is just `startScan()` on that subdirectory —
+no retained full tree, no new machinery. The consequence is that nothing in the
+data records how the user got where they are, so the breadcrumb is not a
+convenience: it is the only record of the path taken.
+
+### The hover readout outlives the pointer
+
+Reveal sits outside the canvas. Clearing the readout on `mouseleave` would
+erase the subject on the way to the verb — the user would arrive at the button
+with nothing selected. So the highlight clears on exit and the readout does not.
+
+
 ## P5 — ELAPSED runs on a wall clock, not on scan progress (2026-08-24)
 
 **Decision:** the ELAPSED figure is driven by its own `setInterval` against

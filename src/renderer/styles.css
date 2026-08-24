@@ -11,6 +11,17 @@
   --ok: #6fa88c;
   --alert: #c4726a;
 
+  /* Treemap categories. One hue (the brass 40deg), one family, separated only
+     by lightness — the map should read as a single material with denser and
+     lighter regions, not as a chart with five competing colours. Lighter =
+     more likely to be something you chose to keep. */
+  --cat-media: hsl(40 32% 74%);
+  --cat-documents: hsl(40 30% 64%);
+  --cat-code: hsl(40 28% 54%);
+  --cat-other: hsl(40 20% 47%);
+  --cat-caches: hsl(40 26% 40%);
+  --cat-system: hsl(40 22% 31%);
+
   /* Type — system stacks only, no webfonts. */
   --font-ui: -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
@@ -156,9 +167,10 @@ p {
   gap: 16px;
 }
 
-.stage--results {
-  overflow: auto;
-  gap: 22px;
+/* Scanning and results are one stage sharing one canvas — the block field
+   becomes the treemap in place. */
+.stage--map {
+  gap: 12px;
 }
 
 /* The signature element. */
@@ -255,63 +267,140 @@ p {
   max-width: 76ch;
 }
 
-/* ---------- Results ---------- */
-.largest {
+/* ---------- Breadcrumbs ---------- */
+/* Each zoom is a fresh scan of a subdirectory, so the trail is the only
+   record of how you got here. */
+.crumbs {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
-}
-
-.items {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.item {
-  display: grid;
-  /* Name takes the slack; size and action stay put so the column reads down. */
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
-  padding: 9px 4px;
-  border-bottom: 1px solid var(--line);
+  gap: 2px;
+  min-height: 24px;
 }
 
-.item:last-child {
-  border-bottom: 0;
-}
-
-.item__name {
+.crumb {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  max-width: 22ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 120ms ease, background-color 120ms ease;
 }
 
-.item__size {
+.crumb:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.crumb--current {
+  color: var(--text);
+  cursor: default;
+}
+
+.crumb--current:hover {
+  background: transparent;
+}
+
+.crumbs__sep {
+  color: var(--line);
+  font-size: 12px;
+  user-select: none;
+}
+
+/* ---------- Hover readout ---------- */
+/* Sits below the map and keeps showing the last rectangle after the pointer
+   leaves the canvas — otherwise moving to Reveal would erase what you meant
+   to reveal. */
+.hoverbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 2px;
+}
+
+.hoverbar .pathline {
+  flex: 1;
+  min-width: 0;
+}
+
+.hoverbar__size {
+  flex: none;
   color: var(--brass);
   font-size: 13px;
-  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
-.item__reveal {
-  /* Present but quiet until the row is under the pointer. */
-  opacity: 0;
-  transition: opacity 120ms ease, border-color 120ms ease;
-}
-
-.item:hover .item__reveal,
-.item__reveal:focus-visible {
-  opacity: 1;
-}
-
-.items__none {
+.hoverbar__date {
+  flex: none;
   color: var(--text-dim);
-  padding: 9px 4px;
+  font-size: 13px;
+}
+
+.hoverbar .btn--ghost {
+  flex: none;
+}
+
+.hoverbar .btn--ghost[disabled] {
+  opacity: 0.35;
+}
+
+/* ---------- Legend ---------- */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend__item::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--cat-other);
+}
+
+.legend__item[data-cat="media"]::before { background: var(--cat-media); }
+.legend__item[data-cat="documents"]::before { background: var(--cat-documents); }
+.legend__item[data-cat="code"]::before { background: var(--cat-code); }
+.legend__item[data-cat="other"]::before { background: var(--cat-other); }
+.legend__item[data-cat="caches"]::before { background: var(--cat-caches); }
+.legend__item[data-cat="system"]::before { background: var(--cat-system); }
+
+/* Mirrors the canvas treatment for aggregates and for directories with
+   contents that aren't in this tree. */
+.legend__item--hatch::before {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--cat-other),
+    var(--cat-other) 2px,
+    var(--ink) 2px,
+    var(--ink) 3px
+  );
+}
+
+.legend__item--dashed::before {
+  background: transparent;
+  border: 1px dashed var(--text-dim);
 }
 
 /* Micro-labels. */

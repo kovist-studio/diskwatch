@@ -81,8 +81,10 @@
             </div>
           </div>
 
-          <!-- Scanning: the block field and the live readout. -->
-          <div class="stage stage--scanning" id="stage-scanning" hidden>
+          <!-- Scanning and results share one canvas: block field, then treemap. -->
+          <div class="stage stage--map" id="stage-scanning" hidden>
+            <nav class="crumbs" id="crumbs" aria-label="Scanned folders" hidden></nav>
+
             <div class="field">
               <div class="blockfield-wrap">
                 <canvas class="blockfield" id="blockfield"></canvas>
@@ -95,9 +97,16 @@
               <span class="pathline mono" id="scan-current"></span>
             </div>
 
+            <div class="hoverbar" id="hoverbar" hidden>
+              <span class="pathline mono" id="hover-path"></span>
+              <span class="hoverbar__size mono" id="hover-size"></span>
+              <span class="hoverbar__date" id="hover-date"></span>
+              <button class="btn btn--ghost" id="hover-reveal">Reveal</button>
+            </div>
+
             <p class="note" id="scan-note" hidden></p>
 
-            <div class="stats">
+            <div class="stats" id="live-stats">
               <div class="stat">
                 <p class="microlabel">Files</p>
                 <p class="figure mono" id="stat-files">0</p>
@@ -115,11 +124,8 @@
                 <p class="figure mono" id="stat-skipped">0</p>
               </div>
             </div>
-          </div>
 
-          <!-- Results: the summary that replaces the field once a scan finishes. -->
-          <div class="stage stage--results" id="stage-results" hidden>
-            <div class="stats">
+            <div class="stats" id="result-stats" hidden>
               <div class="stat">
                 <p class="microlabel">Total size</p>
                 <p class="figure mono" id="res-size">0 B</p>
@@ -140,9 +146,15 @@
 
             <p class="note" id="res-note" hidden></p>
 
-            <div class="largest">
-              <p class="microlabel">Largest items</p>
-              <ul class="items" id="res-items"></ul>
+            <div class="legend" id="legend" hidden>
+              <span class="legend__item" data-cat="media">Media</span>
+              <span class="legend__item" data-cat="documents">Documents</span>
+              <span class="legend__item" data-cat="code">Code</span>
+              <span class="legend__item" data-cat="other">Other</span>
+              <span class="legend__item" data-cat="caches">Caches</span>
+              <span class="legend__item" data-cat="system">System</span>
+              <span class="legend__item legend__item--hatch">Grouped</span>
+              <span class="legend__item legend__item--dashed">More inside</span>
             </div>
           </div>
 
@@ -202,7 +214,10 @@
       </main>
     </div>
 
+    <script src="vendor/d3-hierarchy.js"></script>
+    <script src="surface.js"></script>
     <script src="blockfield.js"></script>
+    <script src="treemap.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

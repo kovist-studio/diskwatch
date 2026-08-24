@@ -71,20 +71,30 @@
   const elElapsed = el('stat-elapsed');
   const elSkipped = el('stat-skipped');
 
+  const elCrumbs = el('crumbs');
+  const elHoverbar = el('hoverbar');
+  const elHoverPath = el('hover-path');
+  const elHoverSize = el('hover-size');
+  const elHoverDate = el('hover-date');
+  const elHoverReveal = el('hover-reveal');
+  const elLegend = el('legend');
+  const elLiveStats = el('live-stats');
+  const elResultStats = el('result-stats');
+
   const elResSize = el('res-size');
   const elResFiles = el('res-files');
   const elResFolders = el('res-folders');
   const elResSkipped = el('res-skipped');
   const elResNote = el('res-note');
-  const elResItems = el('res-items');
 
   const elErrorTitle = el('error-title');
   const elErrorBody = el('error-body');
 
+  // Scanning and results are the same stage now: the canvas hands over from
+  // the block field to the treemap without the view changing underneath it.
   const stages = {
     empty: el('stage-empty'),
     scanning: el('stage-scanning'),
-    results: el('stage-results'),
     error: el('stage-error'),
   };
 
@@ -109,6 +119,15 @@
   }
 
   const formatSeconds = (ms) => Math.floor(ms / 1000) + 's';
+
+  function formatDate(ms) {
+    if (!ms) return '';
+    return new Date(ms).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  }
   const count = (n) => (n || 0).toLocaleString();
   const plural = (n, one, many) => (n === 1 ? one : many);
 
@@ -183,10 +202,109 @@
     }, 700);
   }
 
-  const field = new window.BlockField(el('blockfield'), {
+  // One canvas, two renderers taking turns on it. Only one is ever active, so
+  // they can't fight over the same pixels.
+  const canvas = el('blockfield');
+
+  const field = new window.BlockField(canvas, {
     quantum: 25,
     onScaleChange: (q) => setScaleLabel(q, true),
   });
+
+  const treemap = new window.Treemap(canvas, {
+    onHover: (data, value) => showHover(data, value),
+    onZoom: (data) => zoomInto(data),
+  });
+
+  function showField() {
+    treemap.deactivate();
+    field.activate();
+  }
+
+  function showTreemap(tree) {
+    field.deactivate();
+    treemap.activate();
+    treemap.setTree(tree);
+  }
+
+  // ---------- Hover readout ----------
+  // `hovered` outlives the pointer leaving the canvas on purpose: Reveal sits
+  // outside the canvas, so clearing on exit would erase the subject on the way
+  // to the verb.
+  let hovered = null;
+
+  function showHover(data, value) {
+    if (!data) return;
+    hovered = data;
+    if (data.synthetic) {
+      const n = data.count || 0;
+      elHoverPath.textContent = `${count(n)} smaller ${plural(n, 'item', 'items')} in ${shorten(data.path)}`;
+      elHoverPath.title = data.path;
+      elHoverDate.textContent = '';
+    } else {
+      elHoverPath.textContent = shorten(data.path);
+      elHoverPath.title = data.path;
+      elHoverDate.textContent = data.pruned
+        ? `${count(data.childCount)} ${plural(data.childCount, 'item', 'items')} inside — click to open`
+        : formatDate(data.mtime);
+    }
+    elHoverSize.textContent = formatBytes(value || data.size || 0);
+    elHoverReveal.disabled = false;
+  }
+
+  function clearHover() {
+    hovered = null;
+    elHoverPath.textContent = 'Point at the map to inspect an item';
+    elHoverPath.title = '';
+    elHoverSize.textContent = '';
+    elHoverDate.textContent = '';
+    elHoverReveal.disabled = true;
+  }
+
+  elHoverReveal.addEventListener('click', () => {
+    if (!hovered || !hovered.path) return;
+    api.reveal(hovered.path).catch(() => {
+      elStatus.textContent = 'That item couldn’t be revealed — it may have moved';
+    });
+  });
+
+  // ---------- Breadcrumbs ----------
+  // Zooming is a re-scan of a subdirectory (DECISIONS.md, P3), so nothing in
+  // the data records how we arrived. The trail is that record.
+  let trail = [];
+
+  function renderCrumbs() {
+    elCrumbs.replaceChildren();
+    elCrumbs.hidden = trail.length === 0;
+    trail.forEach((crumb, i) => {
+      if (i > 0) {
+        const sep = document.createElement('span');
+        sep.className = 'crumbs__sep';
+        sep.textContent = '/';
+        elCrumbs.appendChild(sep);
+      }
+      const last = i === trail.length - 1;
+      const btn = document.createElement('button');
+      btn.className = 'crumb' + (last ? ' crumb--current' : '');
+      // textContent, never innerHTML: folder names come off the user's disk.
+      btn.textContent = crumb.name;
+      btn.title = crumb.path;
+      if (last) {
+        btn.setAttribute('aria-current', 'true');
+      } else {
+        btn.addEventListener('click', () => {
+          trail = trail.slice(0, i + 1);
+          runScan(crumb.path, { keepTrail: true });
+        });
+      }
+      elCrumbs.appendChild(btn);
+    });
+  }
+
+  function zoomInto(data) {
+    trail.push({ name: data.name, path: data.path });
+    runScan(data.path, { keepTrail: true });
+  }
 
   // ---------- Elapsed clock ----------
   // Ticks on its own timer, deliberately NOT on scan progress. When a single
@@ -322,6 +440,11 @@
     elRoot.textContent = '';
     setCurrentPath('');
     elScanNote.hidden = true;
+    trail = [];
+    renderCrumbs();
+    clearHover();
+    treemap.deactivate();
+    field.deactivate();
     elFiles.textContent = '0';
     elSize.textContent = '0 B';
     elElapsed.textContent = '0s';
@@ -332,6 +455,13 @@
   }
 
   function showError(code, detail) {
+    // Nothing on the canvas survives into an error view.
+    treemap.deactivate();
+    field.deactivate();
+    elHoverbar.hidden = true;
+    elLegend.hidden = true;
+    clearHover();
+
     const copy = errorCopy(code, detail);
     elStatus.textContent = copy.status;
     elErrorTitle.textContent = copy.title;
@@ -348,6 +478,8 @@
   function showCancelled() {
     elStatus.textContent = 'Scan stopped';
     elReading.hidden = true;
+    // A cancelled scan returns tree: null — there is nothing to map, so the
+    // block field stays exactly where it stopped.
     elScanNote.textContent =
       'You stopped this scan. The counts above are what it had reached — they’re real, but partial.';
     elScanNote.hidden = false;
@@ -356,7 +488,7 @@
   }
 
   function showResults(r) {
-    const folders = Math.max(0, (r.dirsSeen || 0) - 1); // the scanned root isn't "inside" itself
+    const folders = Math.max(0, (r.dirsSeen || 0) - 1); // the scanned root isn't inside itself
     elStatus.textContent = 'Done';
     elResSize.textContent = formatBytes(r.bytesSeen);
     elResFiles.textContent = count(r.filesSeen);
@@ -367,79 +499,57 @@
     elResNote.textContent = note;
     elResNote.hidden = !note;
 
-    renderItems(r.tree);
-    setStage('results');
+    elReading.hidden = true;
+    elScanNote.hidden = true;
+    elLiveStats.hidden = true;
+    elResultStats.hidden = false;
+    elScale.hidden = true;
+    elHoverbar.hidden = false;
+    elLegend.hidden = false;
+    clearHover();
+
+    setStage('scanning');
+    // The canvas stops being a counter and becomes the map.
+    showTreemap(r.tree);
     setActions({ again: true });
   }
 
-  // Largest items = the biggest immediate children of the scanned folder. Not
-  // the biggest nodes anywhere in the tree: those would double-count, listing a
-  // folder and the file inside it as two separate findings.
-  function renderItems(tree) {
-    elResItems.replaceChildren();
-    const kids = tree && tree.children ? tree.children : [];
-    const top = kids
-      .filter((c) => !c.synthetic) // "(smaller items)" is a rollup, not an item
-      .slice()
-      .sort((a, b) => b.size - a.size)
-      .slice(0, 10);
-
-    if (top.length === 0) {
-      const li = document.createElement('li');
-      li.className = 'items__none';
-      li.textContent = 'This folder is empty.';
-      elResItems.appendChild(li);
-      return;
-    }
-
-    top.forEach((node) => {
-      const li = document.createElement('li');
-      li.className = 'item';
-
-      const name = document.createElement('span');
-      name.className = 'item__name';
-      // textContent, never innerHTML: these are filenames off the user's disk
-      // and are treated as hostile input, exactly as the IPC boundary is.
-      name.textContent = node.name;
-      name.title = node.name;
-
-      const size = document.createElement('span');
-      size.className = 'item__size mono';
-      size.textContent = formatBytes(node.size);
-
-      const reveal = document.createElement('button');
-      reveal.className = 'btn btn--ghost item__reveal';
-      reveal.textContent = 'Reveal';
-      reveal.setAttribute('aria-label', `Reveal ${node.name}`);
-      reveal.addEventListener('click', () => {
-        api.reveal(node.path).catch(() => {
-          elStatus.textContent = 'That item couldn’t be revealed — it may have moved';
-        });
-      });
-
-      li.append(name, size, reveal);
-      elResItems.appendChild(li);
-    });
-  }
-
   // ---------- Running a scan ----------
-  async function runScan(target) {
+  async function runScan(target, options) {
     const gen = ++generation;
+    const opts = options || {};
 
     detachProgress(); // a previous listener must never outlive its scan
     lastTarget = target;
+
+    if (!opts.keepTrail) trail = [{ name: baseName(target), path: target }];
+    renderCrumbs();
     last = { files: 0, bytes: 0, skipped: 0 };
+
+    // Back to counting: the block field takes the canvas again.
+    elLiveStats.hidden = false;
+    elResultStats.hidden = true;
+    elResNote.hidden = true;
+    elHoverbar.hidden = true;
+    elLegend.hidden = true;
+    elScale.hidden = false;
+    elScanNote.hidden = true;
+    elReading.hidden = false;
+    elStatus.textContent = 'Scanning';
+    elRoot.textContent = shorten(target);
+    clearHover();
+
+    // The stage has to be on screen before a renderer measures the canvas —
+    // a hidden canvas reports zero size, and the renderer would lay out
+    // against nothing.
+    setStage('scanning');
+    showField();
 
     field.reset();
     setScaleLabel(field.quantum, false);
     elFiles.textContent = '0';
     elSize.textContent = '0 B';
     elSkipped.textContent = '0';
-    elScanNote.hidden = true;
-    elReading.hidden = false;
-    elStatus.textContent = 'Scanning';
-    elRoot.textContent = shorten(target);
-    setStage('scanning');
     setActions({ cancel: true, choose: true });
     scanning = true;
     setCurrentPath(target);
@@ -464,7 +574,7 @@
     // A newer scan already owns the readout — let it be.
     if (gen !== generation) return;
 
-    field.setActive(false);
+    field.setCounting(false);
 
     if (!result.ok) {
       showError(result.code, result.detail);
@@ -499,6 +609,11 @@
       return;
     }
     runScan(target);
+  }
+
+  function baseName(p) {
+    const parts = String(p).split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : p;
   }
 
   buttons.choose.addEventListener('click', chooseAndScan);
