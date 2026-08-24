@@ -3,6 +3,66 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## V2 — The Windows audit classifies on codes, never on messages (2026-08-25)
+
+**Decision:** no check is ever classified by reading an error *message*.
+Classification uses only values that are identical in every locale — the
+`ErrorCategory` enum name, the `FullyQualifiedErrorId`, and .NET exception type
+names. Messages are carried through the envelope for diagnostics and are never
+read by a decision.
+
+**Why.** Windows localises error text. The machine this was verified against is
+ko-KR, and every message it produced came back in Korean: `액세스가 거부되었습니다`
+for access denied, `에 연결된 BitLocker 볼륨이 없습니다` for a missing volume. Matching
+English substrings would have misclassified every non-English install in the
+world, silently and in the direction of a false all-clear.
+
+**A permission failure is never reported as "not protected".** A
+`PermissionDenied` anywhere in a check's errors makes that check `unknown`,
+full stop. Non-elevated `Get-BitLockerVolume` is the case that forces this: it
+returns **two** errors that contradict each other.
+
+| HRESULT | Meaning | Reads as |
+|---|---|---|
+| `0x80070490` | `ERROR_NOT_FOUND` — "no BitLocker volume" | an answer |
+| `0x80041003` | `WBEM_E_ACCESS_DENIED` — "access is denied" | a refusal |
+
+The first is a *consequence* of the second: the cmdlet could not see the
+volumes, so of course it found none. Read alone it looks exactly like a machine
+with no BitLocker at all. A machine that refuses to tell us cannot also be
+telling us there is nothing there, so the refusal wins. The cascade scans the
+whole error array rather than indexing it — `$Error` is newest-first today, and
+on the probe machine the *wrong* error was the one sitting at index 0.
+
+**`AntivirusSignatureAge` is a UInt32, and the `[int]` cast was a real bug.**
+Defender fills the field with an all-ones sentinel (4294967295) when it has no
+update to date from. Observed on PowerShell 5.1, ko-KR:
+
+```
+System.Management.Automation.RuntimeException
+값 "4294967295"을(를) "System.Int32" 유형으로 변환할 수 없습니다.
+오류: "값이 너무 크거나 작아 Int32 형식에 맞지 않습니다."
+```
+
+The failure is **non-terminating**, which is what made it invisible: it lands in
+`$Error`, the assignment never happens, and `$data` stays null. The `try/catch`
+around the body never runs. One unreadable field therefore took down
+`AntivirusEnabled` and `RealTimeProtectionEnabled` with it — both perfectly
+readable — and degraded the whole check to `unknown`. `[int64]` holds every
+UInt32 there is, so the cast cannot fail.
+
+The sentinel is also not an age. Anything past a human lifetime is Defender
+saying it does not know, and reports as a **pass** with the age unstated: the
+protection state is observed, only one field is missing, and discarding
+observed facts because a neighbouring field is absent is the same false-alarm
+failure the permission rule exists to prevent.
+
+**What is still modelled rather than observed:** PowerShell's `ConvertTo-Json`
+serialises a one-element array as a bare object, so a single-disk machine
+produces a different JSON shape from a two-disk one. `toArray` absorbs both,
+but the probe machine has two disks — that shape has never come off real
+hardware, and the test that covers it says so.
+
 ## P6 — Colour encodes age, not category (2026-08-24)
 
 **Decision:** the treemap's lightness ramp encodes file age — recent dark, old

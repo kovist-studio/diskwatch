@@ -50,6 +50,25 @@ const BITLOCKER_DENIED_EN = [
   english(BITLOCKER_ACCESS_DENIED_KO, 'Access is denied.'),
 ];
 
+// The envelope [int]$s.AntivirusSignatureAge produced before the cast was
+// widened, captured on PowerShell 5.1, ko-KR. The sentinel 4294967295 does
+// not fit an Int32, and the conversion fails NON-TERMINATINGLY: it lands in
+// $Error, the assignment never happens, and $data stays null -- so the
+// try/catch in buildScript never runs and the check loses two fields it
+// could read perfectly well.
+//
+// OBSERVED: the exception type and the message.
+// NOT OBSERVED: CategoryInfo.Category and FullyQualifiedErrorId were not
+// captured, so nothing here may depend on their values. The tests below
+// sweep the plausible categories instead of guessing one.
+const DEFENDER_OVERFLOW_KO = {
+  category: 'InvalidArgument',
+  fqid: 'RuntimeException',
+  exception: 'System.Management.Automation.RuntimeException',
+  message:
+    '값 "4294967295"을(를) "System.Int32" 유형으로 변환할 수 없습니다. 오류: "값이 너무 크거나 작아 Int32 형식에 맞지 않습니다."',
+};
+
 const SECUREBOOT_DENIED_KO = [
   {
     category: 'PermissionDenied',
@@ -255,6 +274,42 @@ test('Microsoft Defender', async (t) => {
     assert.equal(win.signatureAgeDays(-1), null, 'a UInt32 is never negative, so this is corruption');
     assert.equal(win.signatureAgeDays(null), null);
     assert.equal(win.signatureAgeDays('7'), null, 'a string is not an age');
+  });
+
+  await t.test('the overflow the old [int] cast produced degrades to unknown', async () => {
+    // This is the envelope the bug actually generated: no data, one
+    // conversion error. It must not resolve to a pass or a fail -- there is
+    // nothing in it to justify either.
+    assert.equal(win.parseDefender(env(null, [DEFENDER_OVERFLOW_KO])), null,
+      'an envelope with no readable data must not be interpreted');
+
+    const check = await win.runCheck(
+      win.CHECK_SPECS.find((spec) => spec.id === 'defender'),
+      async () => ({ stdout: JSON.stringify(env(null, [DEFENDER_OVERFLOW_KO])), stderr: '', error: null }),
+    );
+    assert.equal(check.status, 'unknown');
+    assert.doesNotMatch(check.detail, /[\uAC00-\uD7AF]/, 'the Korean overflow text must not reach the user');
+  });
+
+  await t.test('a conversion error is not mistaken for a refusal, whatever its category', () => {
+    // The real error's category was never captured. Rather than guess one,
+    // sweep every category PowerShell plausibly attaches to a failed cast:
+    // none of them may read as permission, missing command, or unsupported.
+    for (const category of ['InvalidArgument', 'NotSpecified', 'InvalidOperation', 'InvalidData', 'MetadataError']) {
+      const errs = [{ ...DEFENDER_OVERFLOW_KO, category }];
+      assert.equal(win.hasPermissionDenied(errs), false, `${category} must not read as denied`);
+      assert.equal(win.hasCommandMissing(errs), false, `${category} must not read as a missing cmdlet`);
+      assert.equal(win.hasNotSupported(errs), false, `${category} must not read as unsupported`);
+    }
+  });
+
+  await t.test('RuntimeException does not collide with the exception-name patterns', () => {
+    // The classifiers substring-match .NET type names. 'RuntimeException'
+    // shares a suffix with the names they look for, so this pins that it
+    // does not accidentally satisfy any of them.
+    assert.equal(win.hasNotSupported([DEFENDER_OVERFLOW_KO]), false);
+    assert.equal(win.hasCommandMissing([{ ...DEFENDER_OVERFLOW_KO, category: 'NotSpecified' }]), false);
+    assert.equal(win.hasPermissionDenied([{ ...DEFENDER_OVERFLOW_KO, category: 'NotSpecified' }]), false);
   });
 
   await t.test('a missing Defender module is unknown, never a pass or a fail', () => {
@@ -529,9 +584,10 @@ test('no error message text ever reaches the copy the user reads', async () => {
     BITLOCKER_NOT_FOUND_KO.message,
     BITLOCKER_ACCESS_DENIED_KO.message,
     SECUREBOOT_DENIED_KO[0].message,
+    DEFENDER_OVERFLOW_KO.message,
   ];
   const exec = async () => ({
-    stdout: JSON.stringify(env(null, [...BITLOCKER_DENIED_KO, ...SECUREBOOT_DENIED_KO])),
+    stdout: JSON.stringify(env(null, [...BITLOCKER_DENIED_KO, ...SECUREBOOT_DENIED_KO, DEFENDER_OVERFLOW_KO])),
     stderr: '',
     error: null,
   });

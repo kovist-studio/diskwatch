@@ -25,14 +25,19 @@ const DEFAULT_TIMEOUT_MS = 20000;
 // Microsoft treats definitions older than this as out of date.
 const SIGNATURE_STALE_DAYS = 7;
 
-// AntivirusSignatureAge is a UInt32, not an Int32 — confirmed on real
-// hardware. Two consequences, both handled rather than assumed away:
+// AntivirusSignatureAge is a UInt32, not an Int32. Two consequences, both
+// handled rather than assumed away:
 //
 //   - PowerShell must not cast it with [int]. Defender fills the field with an
 //     all-ones sentinel (4294967295) when it has no update to date from, and
-//     [int] on that throws an overflow, which would take the whole Defender
-//     envelope down with it and lose AntivirusEnabled too. [int64] holds every
-//     UInt32 there is, so the cast can never throw.
+//     [int] on that value fails. OBSERVED on PowerShell 5.1, ko-KR:
+//     RuntimeException, "Value was either too large or too small for an
+//     Int32". It is not a terminating error, so the try/catch never sees it:
+//     it lands in $Error, the assignment does not happen, and $data stays
+//     null. That loses AntivirusEnabled and RealTimeProtectionEnabled too --
+//     both perfectly readable -- and degrades the whole check to 'unknown'
+//     over one unreadable field. [int64] holds every UInt32 there is, so the
+//     cast cannot fail.
 //   - The sentinel is not an age. Anything past a human lifetime is Defender
 //     saying "no idea", and is reported as unreported rather than rendered as
 //     "definitions are 4294967295 days old".
