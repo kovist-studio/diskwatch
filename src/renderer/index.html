@@ -147,14 +147,22 @@
             <p class="note" id="res-note" hidden></p>
 
             <div class="legend" id="legend" hidden>
-              <span class="legend__item" data-cat="media">Media</span>
-              <span class="legend__item" data-cat="documents">Documents</span>
-              <span class="legend__item" data-cat="code">Code</span>
-              <span class="legend__item" data-cat="other">Other</span>
-              <span class="legend__item" data-cat="caches">Caches</span>
-              <span class="legend__item" data-cat="system">System</span>
-              <span class="legend__item legend__item--hatch">Grouped</span>
-              <span class="legend__item legend__item--dashed">More inside</span>
+              <div class="agescale">
+                <span class="microlabel">Newer</span>
+                <span class="agescale__bar">
+                  <span class="agescale__ramp" id="age-ramp"></span>
+                  <span class="agescale__dates mono">
+                    <span id="age-newest"></span>
+                    <span id="age-middle"></span>
+                    <span id="age-oldest"></span>
+                  </span>
+                </span>
+                <span class="microlabel">Older</span>
+              </div>
+              <div class="legend__keys">
+                <span class="legend__item legend__item--hatch">Grouped</span>
+                <span class="legend__item legend__item--dashed">More inside</span>
+              </div>
             </div>
           </div>
 

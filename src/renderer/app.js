@@ -78,6 +78,10 @@
   const elHoverDate = el('hover-date');
   const elHoverReveal = el('hover-reveal');
   const elLegend = el('legend');
+  const elAgeRamp = el('age-ramp');
+  const elAgeNewest = el('age-newest');
+  const elAgeMiddle = el('age-middle');
+  const elAgeOldest = el('age-oldest');
   const elLiveStats = el('live-stats');
   const elResultStats = el('result-stats');
 
@@ -147,10 +151,10 @@
   // canvas wants a parsable font shorthand and silently falls back to 10px
   // sans-serif if it can't parse the stack — which would look like a working
   // measurement while sizing against the wrong font.
-  let charW = 0;
+  const charWidths = new WeakMap();
 
   function charWidth(target) {
-    if (charW) return charW;
+    if (charWidths.has(target)) return charWidths.get(target);
     const cs = getComputedStyle(target);
     const ruler = document.createElement('span');
     ruler.textContent = '0'.repeat(100);
@@ -164,30 +168,51 @@
     document.body.appendChild(ruler);
     const w = ruler.getBoundingClientRect().width / 100;
     ruler.remove();
-    charW = w > 0 ? w : 7;
-    return charW;
+    const cw = w > 0 ? w : 7;
+    charWidths.set(target, cw);
+    return cw;
   }
 
-  let currentFull = '';
+  // Full text per element, so a resize can re-truncate from the original
+  // rather than from an already-shortened string.
+  const fullText = new WeakMap();
 
-  function paintCurrent() {
-    const text = currentFull;
-    const width = elCurrent.clientWidth;
+  function paintTruncated(target) {
+    const text = fullText.get(target) || '';
+    target.title = text;
+    const width = target.clientWidth;
     if (!width) {
-      elCurrent.textContent = text;
+      target.textContent = text;
       return;
     }
-    const max = Math.max(8, Math.floor(width / charWidth(elCurrent)));
-    elCurrent.textContent = text.length <= max ? text : '…' + text.slice(text.length - (max - 1));
-    elCurrent.title = text;
+    let max = Math.max(8, Math.floor(width / charWidth(target)));
+    if (text.length <= max) {
+      target.textContent = text;
+      return;
+    }
+    target.textContent = '…' + text.slice(text.length - (max - 1));
+    // Measured backstop. The character-width estimate runs a character or two
+    // optimistic (fractional advances, fallback faces), and when it does, CSS
+    // clips the RIGHT edge — throwing away the filename, which is the half the
+    // left-truncation existed to keep. Shrink until it genuinely fits.
+    let guard = 0;
+    while (target.scrollWidth > target.clientWidth && max > 9 && guard++ < 60) {
+      max -= 1;
+      target.textContent = '…' + text.slice(text.length - (max - 1));
+    }
   }
 
-  function setCurrentPath(p) {
-    currentFull = shorten(p);
-    paintCurrent();
+  function setTruncated(target, text) {
+    fullText.set(target, text || '');
+    paintTruncated(target);
   }
 
-  window.addEventListener('resize', paintCurrent);
+  const setCurrentPath = (p) => setTruncated(elCurrent, shorten(p));
+
+  window.addEventListener('resize', () => {
+    paintTruncated(elCurrent);
+    paintTruncated(elHoverPath);
+  });
 
   // ---------- Block field ----------
   function setScaleLabel(quantum, bump) {
@@ -227,6 +252,23 @@
     treemap.setTree(tree);
   }
 
+  // The key is painted from the same ramp function as the rectangles, so the
+  // two can never disagree about what a colour means.
+  function showAgeScale() {
+    const age = treemap.age;
+    // No range to draw: a gradient here would imply a spread of dates that
+    // this folder does not have.
+    if (!age || age.span <= 0) {
+      elLegend.hidden = true;
+      return;
+    }
+    elAgeRamp.style.background = treemap.rampCss(14);
+    elAgeNewest.textContent = formatDate(age.newest);
+    elAgeMiddle.textContent = formatDate(age.middle);
+    elAgeOldest.textContent = formatDate(age.oldest);
+    elLegend.hidden = false;
+  }
+
   // ---------- Hover readout ----------
   // `hovered` outlives the pointer leaving the canvas on purpose: Reveal sits
   // outside the canvas, so clearing on exit would erase the subject on the way
@@ -236,25 +278,36 @@
   function showHover(data, value) {
     if (!data) return;
     hovered = data;
+
+    // Fill the fixed-width siblings FIRST. The path is a flex:1 item, so its
+    // width is whatever they leave over — measuring it before they have their
+    // content sizes it against a box wider than the one it ends up in, and the
+    // tail gets clipped by exactly the amount they were about to take.
+    elHoverSize.textContent = formatBytes(value || data.size || 0);
     if (data.synthetic) {
-      const n = data.count || 0;
-      elHoverPath.textContent = `${count(n)} smaller ${plural(n, 'item', 'items')} in ${shorten(data.path)}`;
-      elHoverPath.title = data.path;
       elHoverDate.textContent = '';
     } else {
-      elHoverPath.textContent = shorten(data.path);
-      elHoverPath.title = data.path;
       elHoverDate.textContent = data.pruned
         ? `${count(data.childCount)} ${plural(data.childCount, 'item', 'items')} inside — click to open`
         : formatDate(data.mtime);
     }
-    elHoverSize.textContent = formatBytes(value || data.size || 0);
     elHoverReveal.disabled = false;
+
+    // Row is settled: now the path can be measured against its real width.
+    if (data.synthetic) {
+      const n = data.count || 0;
+      setTruncated(
+        elHoverPath,
+        `${count(n)} smaller ${plural(n, 'item', 'items')} in ${shorten(data.path)}`,
+      );
+    } else {
+      setTruncated(elHoverPath, shorten(data.path));
+    }
   }
 
   function clearHover() {
     hovered = null;
-    elHoverPath.textContent = 'Point at the map to inspect an item';
+    setTruncated(elHoverPath, 'Point at the map to inspect an item');
     elHoverPath.title = '';
     elHoverSize.textContent = '';
     elHoverDate.textContent = '';
@@ -505,12 +558,12 @@
     elResultStats.hidden = false;
     elScale.hidden = true;
     elHoverbar.hidden = false;
-    elLegend.hidden = false;
     clearHover();
 
     setStage('scanning');
     // The canvas stops being a counter and becomes the map.
     showTreemap(r.tree);
+    showAgeScale();
     setActions({ again: true });
   }
 

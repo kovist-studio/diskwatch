@@ -19,46 +19,33 @@ const MIN_LABEL_W = 54;
 const MIN_AREA_PER_CHILD = 120;
 const MIN_LABEL_H = 17;
 
-// File categories. Extension first, except that anything living under a cache
-// directory is a cache whatever it is named — a .png inside Caches is not a
-// photo the user chose to keep.
-const EXTENSIONS = {
-  media: ['jpg', 'jpeg', 'png', 'gif', 'heic', 'heif', 'webp', 'svg', 'tiff', 'tif', 'bmp', 'ico',
-          'raw', 'cr2', 'nef', 'psd', 'ai',
-          'mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v', 'mpg', 'mpeg', 'wmv', 'flv',
-          'mp3', 'wav', 'aac', 'flac', 'm4a', 'ogg', 'oga', 'aiff', 'aif', 'wma'],
-  documents: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'rtf', 'odt', 'ods',
-              'pages', 'numbers', 'key', 'epub', 'mobi', 'csv', 'tsv'],
-  code: ['js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'c', 'h', 'cc', 'cpp',
-         'hpp', 'java', 'kt', 'swift', 'm', 'mm', 'sh', 'zsh', 'bash', 'pl', 'php', 'lua', 'r',
-         'json', 'yml', 'yaml', 'toml', 'ini', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'sql'],
-  caches: ['cache', 'tmp', 'temp', 'log', 'lock', 'pid', 'part', 'crdownload', 'download'],
-  system: ['plist', 'db', 'sqlite', 'sqlite3', 'realm', 'dylib', 'so', 'a', 'o', 'dSYM', 'kext',
-           'pkg', 'dmg', 'iso', 'app', 'framework', 'bundle', 'nib', 'car', 'icns', 'ipa', 'apk',
-           'zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar'],
-};
+// Colour encodes AGE, not category.
+//
+// Category was the first attempt and it was the wrong channel: file categories
+// are nominal — media isn't "more" than code — so ordering them along a
+// lightness ramp implied a sequence that doesn't exist, and six steps of one
+// hue were too compressed to tell apart at the sizes most rectangles get.
+// Age is genuinely ordinal, so a light-to-dark ramp reads correctly, and it
+// answers a question people actually have about a folder.
+//
+// Recent files are DARK, old files are PALE, so the parts of a disk that have
+// gone cold recede and the live parts sit forward.
+const HUE = 40; // the brass hue
+const L_RECENT = 20;
+const L_OLD = 84;
+const S_RECENT = 34;
+const S_OLD = 20;
+// Above this lightness a fill needs dark text on it.
+const L_DARK_TEXT = 55;
+const DAY = 86400000;
 
-const BY_EXT = new Map();
-Object.keys(EXTENSIONS).forEach((cat) => {
-  EXTENSIONS[cat].forEach((ext) => BY_EXT.set(ext, cat));
-});
-
-const CACHE_SEGMENTS = /(^|\/)(caches?|cachestorage|tmp|temp|logs?|deriveddata|\.cache)(\/|$)/i;
-const SYSTEM_SEGMENTS = /(^|\/)(system|library\/frameworks|private\/var|windows|winsxs|program files)(\/|$)/i;
-
-function categoryOf(data) {
-  if (data.synthetic) return 'other';
-  const path = data.path || '';
-  if (CACHE_SEGMENTS.test(path)) return 'caches';
-  if (data.type === 'dir') {
-    return SYSTEM_SEGMENTS.test(path) ? 'system' : 'other';
-  }
-  const dot = data.name.lastIndexOf('.');
-  const ext = dot > 0 ? data.name.slice(dot + 1).toLowerCase() : '';
-  const byExt = BY_EXT.get(ext);
-  if (byExt) return byExt;
-  if (SYSTEM_SEGMENTS.test(path)) return 'system';
-  return 'other';
+// Age is mapped on a LOG scale, not linearly. Measured on the real data: a
+// linear map puts 91% of ~/Library's files into the first tenth of the ramp,
+// because one fourteen-year-old file sets the far end and crushes everything
+// else into a single tone. That is the exact failure this encoding replaced.
+// Log spreads the same files across the whole ramp.
+function ageDays(mtime, now) {
+  return Math.max(0, (now - mtime) / DAY);
 }
 
 // A directory the worker could not fully represent: it has real children that
@@ -102,21 +89,26 @@ class Treemap extends window.CanvasSurface {
     };
   }
 
-  _readPalette() {
-    super._readPalette();
-    // Monochromatic: one hue, one family, separated only by lightness. The
-    // map should read as a single material with denser and lighter regions,
-    // not as a chart with five competing colours.
-    this.cat = {
-      media: this.css('--cat-media', 'hsl(40 32% 74%)'),
-      documents: this.css('--cat-documents', 'hsl(40 30% 64%)'),
-      code: this.css('--cat-code', 'hsl(40 28% 54%)'),
-      other: this.css('--cat-other', 'hsl(40 20% 47%)'),
-      caches: this.css('--cat-caches', 'hsl(40 26% 40%)'),
-      system: this.css('--cat-system', 'hsl(40 22% 31%)'),
-    };
-    // Which fills are light enough to need dark text on top.
-    this.lightCats = new Set(['media', 'documents']);
+  // One continuous ramp along the brass hue. Nothing to read from a swatch
+  // table — the strip in the legend is generated from this same function, so
+  // the key and the map can never disagree.
+  ramp(t) {
+    const k = Math.min(1, Math.max(0, t));
+    const l = L_RECENT + k * (L_OLD - L_RECENT);
+    const sat = S_RECENT + k * (S_OLD - S_RECENT);
+    return `hsl(${HUE} ${sat.toFixed(1)}% ${l.toFixed(1)}%)`;
+  }
+
+  // CSS gradient for the legend strip, sampled from ramp() so the legend is
+  // literally the same scale the rectangles are painted with.
+  rampCss(steps) {
+    const n = Math.max(2, steps || 12);
+    const stops = [];
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      stops.push(`${this.ramp(t)} ${(t * 100).toFixed(1)}%`);
+    }
+    return `linear-gradient(90deg, ${stops.join(', ')})`;
   }
 
   activate() {
@@ -183,6 +175,55 @@ class Treemap extends window.CanvasSurface {
 
     this.root = root;
     this.nodes = root.descendants();
+    this._computeAgeScale();
+  }
+
+  // The ramp is fitted to the range actually present in this folder, so the
+  // extremes are always fully used however wide or narrow that range is.
+  _computeAgeScale() {
+    const now = Date.now();
+    let minAge = Infinity;
+    let maxAge = -Infinity;
+    for (const d of this.root.leaves()) {
+      const m = d.data.mtime;
+      if (!m) continue;
+      const age = ageDays(m, now);
+      if (age < minAge) minAge = age;
+      if (age > maxAge) maxAge = age;
+    }
+    if (!Number.isFinite(minAge)) {
+      this.age = null;
+      return;
+    }
+    const lo = Math.log1p(minAge);
+    const hi = Math.log1p(maxAge);
+    this.age = {
+      now,
+      lo,
+      hi,
+      span: hi - lo,
+      newest: now - minAge * DAY,
+      oldest: now - maxAge * DAY,
+      // The date the MIDDLE of the strip stands for. On a log scale that is
+      // not halfway between the two ends, and the legend says so rather than
+      // letting the strip imply otherwise.
+      middle: now - Math.expm1(lo + (hi - lo) / 2) * DAY,
+    };
+  }
+
+  // 0 = the newest thing here, 1 = the oldest.
+  //
+  // With no usable range — nothing carries a timestamp, or everything carries
+  // the same one — every rectangle sits mid-ramp. Painting them all "newest"
+  // would assert something the data does not say, and the legend hides itself
+  // in that case rather than showing a gradient across a range that isn't
+  // there.
+  ageT(data) {
+    if (!this.age || this.age.span <= 0) return 0.5;
+    const m = data && data.mtime;
+    if (!m) return 0.5; // no timestamp: sit it in the middle rather than lie
+    const t = (Math.log1p(ageDays(m, this.age.now)) - this.age.lo) / this.age.span;
+    return Math.min(1, Math.max(0, t));
   }
 
   // The deepest laid-out node containing the point. Walking all ~5,000 nodes
@@ -236,7 +277,7 @@ class Treemap extends window.CanvasSurface {
   }
 
   colorFor(data) {
-    return this.cat[categoryOf(data)] || this.cat.other;
+    return this.ramp(this.ageT(data));
   }
 
   render() {
@@ -284,8 +325,8 @@ class Treemap extends window.CanvasSurface {
     if (isPruned(data)) this._dashEdge(ctx, d.x0, d.y0, w, h);
 
     if (w >= MIN_LABEL_W && h >= MIN_LABEL_H) {
-      const cat = categoryOf(data);
-      ctx.fillStyle = this.lightCats.has(cat) ? this.colInk : this.colText;
+      const pale = L_RECENT + this.ageT(data) * (L_OLD - L_RECENT) > L_DARK_TEXT;
+      ctx.fillStyle = pale ? this.colInk : this.colText;
       ctx.font = `11px ${this.fontUi}`;
       ctx.textBaseline = 'top';
       this._clippedText(ctx, this._leafLabel(data), d.x0 + 4, d.y0 + 3, w - 8);
@@ -321,11 +362,17 @@ class Treemap extends window.CanvasSurface {
     this._clippedText(ctx, d.data.name, d.x0 + 5, d.y0 + HEADER_H / 2 + 0.5, w - 10);
   }
 
+  // --signal amber. A stroke alone disappears on a rectangle only a few
+  // pixels across, so the fill is tinted too and the whole shape lights up.
   _drawHighlight(ctx, d) {
     const w = d.x1 - d.x0;
     const h = d.y1 - d.y0;
     if (w <= 0 || h <= 0) return;
     ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = this.colEdge;
+    ctx.fillRect(d.x0, d.y0, w, h);
+    ctx.globalAlpha = 1;
     ctx.strokeStyle = this.colEdge;
     ctx.lineWidth = 2;
     ctx.strokeRect(d.x0 + 1, d.y0 + 1, Math.max(0, w - 2), Math.max(0, h - 2));
@@ -376,7 +423,6 @@ class Treemap extends window.CanvasSurface {
   }
 }
 
-Treemap.categoryOf = categoryOf;
 Treemap.valueOf = valueOf;
 Treemap.childrenOf = childrenOf;
 window.Treemap = Treemap;

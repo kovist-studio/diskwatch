@@ -11,17 +11,6 @@
   --ok: #6fa88c;
   --alert: #c4726a;
 
-  /* Treemap categories. One hue (the brass 40deg), one family, separated only
-     by lightness — the map should read as a single material with denser and
-     lighter regions, not as a chart with five competing colours. Lighter =
-     more likely to be something you chose to keep. */
-  --cat-media: hsl(40 32% 74%);
-  --cat-documents: hsl(40 30% 64%);
-  --cat-code: hsl(40 28% 54%);
-  --cat-other: hsl(40 20% 47%);
-  --cat-caches: hsl(40 26% 40%);
-  --cat-system: hsl(40 22% 31%);
-
   /* Type — system stacks only, no webfonts. */
   --font-ui: -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
@@ -170,7 +159,7 @@ p {
 /* Scanning and results are one stage sharing one canvas — the block field
    becomes the treemap in place. */
 .stage--map {
-  gap: 12px;
+  gap: 10px;
 }
 
 /* The signature element. */
@@ -188,7 +177,7 @@ p {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 16px;
+  padding: 12px;
 }
 
 .blockfield {
@@ -264,7 +253,7 @@ p {
 .note {
   color: var(--text-dim);
   font-size: 13px;
-  max-width: 76ch;
+  max-width: 104ch;
 }
 
 /* ---------- Breadcrumbs ---------- */
@@ -355,7 +344,60 @@ p {
 }
 
 /* ---------- Legend ---------- */
+/* Colour encodes age on a continuous ramp, so the key is a strip of that same
+   ramp rather than a table of swatches — it is generated from the function
+   that paints the rectangles, so the two cannot drift apart. */
+/* Scale and keys share one row; the map needs the vertical space more. */
 .legend {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px 30px;
+  flex-wrap: wrap;
+}
+
+.agescale {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.agescale .microlabel {
+  line-height: 11px;
+}
+
+/* Ramp and dates share a column so each date sits under the point on the
+   strip it actually describes. */
+.agescale__bar {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 380px;
+}
+
+.agescale__ramp {
+  display: block;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  /* Filled in from Treemap.rampCss() when a map is shown. */
+}
+
+/* Three dates, not two: on a log scale the middle of the strip is nowhere
+   near halfway between the ends, and naming the midpoint date says so
+   instead of letting the gradient imply a straight line. */
+.agescale__dates {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.agescale__dates span:nth-child(2) {
+  opacity: 0.75;
+}
+
+.legend__keys {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 18px;
@@ -376,23 +418,15 @@ p {
   width: 10px;
   height: 10px;
   border-radius: 2px;
-  background: var(--cat-other);
 }
-
-.legend__item[data-cat="media"]::before { background: var(--cat-media); }
-.legend__item[data-cat="documents"]::before { background: var(--cat-documents); }
-.legend__item[data-cat="code"]::before { background: var(--cat-code); }
-.legend__item[data-cat="other"]::before { background: var(--cat-other); }
-.legend__item[data-cat="caches"]::before { background: var(--cat-caches); }
-.legend__item[data-cat="system"]::before { background: var(--cat-system); }
 
 /* Mirrors the canvas treatment for aggregates and for directories with
    contents that aren't in this tree. */
 .legend__item--hatch::before {
   background: repeating-linear-gradient(
     45deg,
-    var(--cat-other),
-    var(--cat-other) 2px,
+    var(--brass),
+    var(--brass) 2px,
     var(--ink) 2px,
     var(--ink) 3px
   );

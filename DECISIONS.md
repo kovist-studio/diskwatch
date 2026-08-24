@@ -3,6 +3,50 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## P6 — Colour encodes age, not category (2026-08-24)
+
+**Decision:** the treemap's lightness ramp encodes file age — recent dark, old
+pale — on a continuous scale. The six file-category colours it replaces are
+gone, along with their legend.
+
+**Why category failed.** It was the wrong kind of variable for the channel.
+Lightness is an *ordered* visual dimension: darker reads as more-of-something.
+File categories are **nominal** — media is not "more" than code — so laying
+them along a ramp implied a sequence that does not exist, and left the reader
+trying to remember an arbitrary swatch-to-meaning mapping. Six steps of a
+single hue also had to fit inside one hue's usable lightness range, which
+compressed the middle four to the point where they were indistinguishable at
+the size most rectangles actually get. Widening the steps was not available:
+the palette is deliberately monochromatic, and more hues would have made the
+map a chart about categories when the finding is the sizes.
+
+Age has a natural order, so the ramp reads correctly with no key to memorise —
+and it answers a question people actually have about a folder.
+
+**The ramp is logarithmic on age, and that is not a detail.** Measured on the
+real data, a linear map puts **91% of ~/Library's files in the first tenth of
+the ramp**: one fourteen-year-old file sets the pale end and crushes everything
+else into a single tone — reproducing, by a different route, exactly the
+failure this change was made to fix. On a log scale the same files spread
+across 8 of 10 bands. (~/Downloads lands mostly at the pale end, which is
+simply true: its median file is 4.6 years old.)
+
+**The legend is a strip of the ramp, generated from the function that paints
+the rectangles**, so the key and the map cannot drift apart.
+
+**It carries three dates, not two.** On a log scale the middle of the strip is
+nowhere near halfway between the ends — for ~/Library the midpoint is about
+three months back while the far end is fourteen years. Labelling the midpoint
+says so plainly. Two dates alone would have let a straight gradient imply a
+straight timeline, which is the same class of untruth as a fabricated
+percentage.
+
+**Where there is no range, there is no ramp.** If nothing carries a timestamp,
+or everything carries the same one, every rectangle sits mid-ramp and the
+legend hides itself. Painting them all "newest" would assert something the data
+does not say.
+
+
 ## P6 — The treemap (2026-08-24)
 
 **Decision:** a squarified treemap drawn to the same canvas the block field
