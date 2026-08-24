@@ -243,6 +243,29 @@ p {
   letter-spacing: -0.02em;
 }
 
+/* Results summary. The map is the answer; these four numbers are context for
+   it, so they sit on one line at body size. The .figure treatment stays where
+   it still earns the weight: the live scan readout, where the block field is
+   the only other thing on screen. */
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 28px;
+}
+
+.summary__item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.summary__value {
+  color: var(--brass);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
 .actions {
   display: flex;
   gap: 10px;

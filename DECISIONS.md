@@ -161,6 +161,22 @@ no retained full tree, no new machinery. The consequence is that nothing in the
 data records how the user got where they are, so the breadcrumb is not a
 convenience: it is the only record of the path taken.
 
+### The summary shrank when the map arrived
+
+P5 gave the four summary figures the 30px `.figure` treatment, and that was
+right at the time: the block field was the only other thing on screen, and the
+numbers were the finding.
+
+The treemap changed what the finding is. The map is now the answer and the
+figures are context for it, so four 30px numbers were competing with the thing
+they describe. They became one inline row at body size — 52px of height down to
+20px, all of which the map took (270px tall to 301px in a default window).
+
+The `.figure` treatment stays where it still earns the weight: the live scan
+readout, where the block field is again the only other element and the counts
+are again the finding. Same reasoning, opposite conclusion, because the context
+is different.
+
 ### The hover readout outlives the pointer
 
 Reveal sits outside the canvas. Clearing the readout on `mouseleave` would

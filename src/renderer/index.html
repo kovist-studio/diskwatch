@@ -125,23 +125,25 @@
               </div>
             </div>
 
-            <div class="stats" id="result-stats" hidden>
-              <div class="stat">
-                <p class="microlabel">Total size</p>
-                <p class="figure mono" id="res-size">0 B</p>
-              </div>
-              <div class="stat">
-                <p class="microlabel">Files</p>
-                <p class="figure mono" id="res-files">0</p>
-              </div>
-              <div class="stat">
-                <p class="microlabel">Folders</p>
-                <p class="figure mono" id="res-folders">0</p>
-              </div>
-              <div class="stat">
-                <p class="microlabel">Skipped</p>
-                <p class="figure mono" id="res-skipped">0</p>
-              </div>
+            <!-- Context for the map, not the headline: one inline row at body
+                 size so four numbers don't compete with the thing they describe. -->
+            <div class="summary" id="result-stats" hidden>
+              <span class="summary__item">
+                <span class="microlabel">Total size</span>
+                <span class="summary__value mono" id="res-size">0 B</span>
+              </span>
+              <span class="summary__item">
+                <span class="microlabel">Files</span>
+                <span class="summary__value mono" id="res-files">0</span>
+              </span>
+              <span class="summary__item">
+                <span class="microlabel">Folders</span>
+                <span class="summary__value mono" id="res-folders">0</span>
+              </span>
+              <span class="summary__item">
+                <span class="microlabel">Skipped</span>
+                <span class="summary__value mono" id="res-skipped">0</span>
+              </span>
             </div>
 
             <p class="note" id="res-note" hidden></p>
