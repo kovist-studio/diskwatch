@@ -1,0 +1,89 @@
+# Packaging config. See README "Install" for what unsigned means for users.
+appId: com.diskwatch.app
+productName: DiskWatch
+copyright: Copyright © 2026 Taeyun Kim
+
+directories:
+  buildResources: build
+  output: dist
+
+# Ship the app and nothing else. No tests, no captures, no dev scratch.
+files:
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/.DS_Store"
+
+asar: true
+
+# Releases are cut by .github/workflows/build.yml using the gh CLI, so
+# electron-builder must not try to publish anything itself.
+publish: null
+
+mac:
+  category: public.app-category.utilities
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  # UNSIGNED, deliberately. Signing needs a paid Apple Developer account; until
+  # there is one, an ad-hoc or absent signature is more honest than a
+  # half-measure, and the README tells users exactly what they will see and why.
+  # `identity: null` stops electron-builder from picking up any certificate that
+  # happens to be in the developer's keychain — builds must be reproducible from
+  # CI, not dependent on whose machine they ran on.
+  identity: null
+  # Hardened runtime and notarization both require a real signature; enabling
+  # them unsigned produces an app that will not launch at all.
+  hardenedRuntime: false
+  notarize: false
+  gatekeeperAssess: false
+  # The scanner walks the user's disk, so macOS will ask for these. The strings
+  # are what appears in the permission dialog.
+  extendInfo:
+    NSDesktopFolderUsageDescription: DiskWatch reads this folder to show what is using space. It never moves, changes, or deletes anything.
+    NSDocumentsFolderUsageDescription: DiskWatch reads this folder to show what is using space. It never moves, changes, or deletes anything.
+    NSDownloadsFolderUsageDescription: DiskWatch reads this folder to show what is using space. It never moves, changes, or deletes anything.
+    NSRemovableVolumesUsageDescription: DiskWatch reads this volume to show what is using space. It never moves, changes, or deletes anything.
+
+dmg:
+  # Name BOTH architectures explicitly. electron-builder's default leaves the
+  # primary arch unsuffixed ("DiskWatch-1.0.0.dmg" vs "-arm64.dmg"), which
+  # invites an Apple Silicon user to download the Intel build because it looks
+  # like the plain one.
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # Plain drag-to-Applications window.
+  contents:
+    - x: 140
+      y: 180
+      type: file
+    - x: 400
+      y: 180
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 360
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # UNSIGNED, deliberately — see the mac note. An Authenticode certificate is
+  # the Windows equivalent and is likewise not in place yet.
+
+nsis:
+  # Not a one-click installer: the user sees where it is going and can change
+  # it. A cleanup tool that installs itself silently starts on the wrong foot.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+  artifactName: ${productName}-${version}-Setup-${arch}.${ext}

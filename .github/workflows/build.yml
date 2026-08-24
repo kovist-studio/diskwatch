@@ -4,6 +4,9 @@ name: build
 # in CI — never generated or published from a developer machine. The checksums
 # are appended to the GitHub Release notes so users can verify their downloads.
 #
+# Each platform builds natively on its own runner — macOS installers on macOS,
+# Windows installers on Windows — so nothing is cross-compiled for a release.
+#
 # Hardening note: the actions below are pinned to major-version tags for
 # readability. For a stronger supply-chain posture, pin each to a full commit
 # SHA.
@@ -35,15 +38,36 @@ jobs:
 
       - run: npm ci
 
-      # Packaging (electron-builder) is wired up in the packaging phase; it
-      # emits the platform artifacts under dist/.
-      - run: npm run build
+      # The renderer loads d3-hierarchy from a vendored copy rather than from
+      # node_modules. Prove the copy still matches the package before shipping
+      # it to anyone.
+      - name: Verify vendored dependency matches node_modules
+        run: npm run verify:vendor
 
-      - name: Upload build artifacts
+      # macOS: .dmg for arm64 and x64. Windows: NSIS .exe for x64.
+      # Both are UNSIGNED by design — see README "A note on signing".
+      # CSC_IDENTITY_AUTO_DISCOVERY=false stops electron-builder picking up any
+      # signing identity that happens to exist on the runner, so what ships is
+      # never dependent on which machine built it.
+      - name: Build installers
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run build -- --publish never
+
+      - name: List what was built
+        shell: bash
+        run: ls -lh dist/
+
+      # Only the installers travel onward. The unpacked app directories and the
+      # auto-update blockmaps are build intermediates, and checksumming a
+      # 373 MB unpacked tree would bury the two lines users actually need.
+      - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.os }}
-          path: dist/**
+          name: installers-${{ matrix.os }}
+          path: |
+            dist/*.dmg
+            dist/*.exe
           if-no-files-found: error
 
   release:

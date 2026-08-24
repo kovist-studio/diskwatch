@@ -1,7 +1,7 @@
 {
   "name": "diskwatch",
   "productName": "DiskWatch",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A free, open-source desktop app that shows what's on a disk, whether it's protected, and what's safe to remove.",
   "license": "MIT",
   "author": "Taeyun Kim",
@@ -11,10 +11,15 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "sync:vendor": "cp node_modules/d3-hierarchy/dist/d3-hierarchy.js src/renderer/vendor/d3-hierarchy.js",
-    "verify:vendor": "cmp node_modules/d3-hierarchy/dist/d3-hierarchy.js src/renderer/vendor/d3-hierarchy.js && echo \"vendor matches node_modules\""
+    "verify:vendor": "cmp node_modules/d3-hierarchy/dist/d3-hierarchy.js src/renderer/vendor/d3-hierarchy.js && echo \"vendor matches node_modules\"",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:dir": "electron-builder --dir"
   },
   "devDependencies": {
-    "electron": "^43.4.1"
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "d3-hierarchy": "^3.1.2"
