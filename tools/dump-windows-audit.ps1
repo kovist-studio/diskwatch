@@ -1,4 +1,4 @@
-# DiskWatch — Windows audit probe.
+# DiskWatch - Windows audit probe.
 # Paste this whole block into a NON-ELEVATED PowerShell window.
 # It only reads. It changes nothing, installs nothing, and never asks for
 # administrator rights: the refusals it collects are the point of running it.
