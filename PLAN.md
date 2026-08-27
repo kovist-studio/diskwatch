@@ -363,7 +363,7 @@ A false *malicious* verdict annoys someone. A false *safe* verdict is how a pers
 
 | Platform | Channel | Notes |
 |---|---|---|
-| macOS | **Homebrew Cask via own tap** | `brew tap <you>/apps && brew install --cask <app>`. Homebrew strips the quarantine flag, so users see **no** Gatekeeper warning. Own tap first; official cask has notability requirements. |
+| macOS | **Homebrew Cask via own tap** | `brew tap kovist-studio/apps && brew install --cask diskwatch`. Homebrew strips the quarantine flag, so users see **no** Gatekeeper warning. Own tap first; official cask has notability requirements. |
 | macOS | Direct `.dmg` | Requires right-click → Open on first launch. Document it clearly. |
 | Windows | Direct `.exe` | SmartScreen warning until reputation accrues. Document "More info → Run anyway". |
 | Windows | winget / Scoop | Manifest submission, free. |

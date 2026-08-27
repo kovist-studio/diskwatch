@@ -1,5 +1,9 @@
 # Packaging config. See README "Install" for what unsigned means for users.
-appId: com.diskwatch.app
+
+# Reverse-DNS of kovist.app, a domain we actually own. This is the identity
+# macOS grants Full Disk Access and other TCC permissions against, so it is
+# fixed from the first release onward — see DECISIONS.md.
+appId: app.kovist.diskwatch
 productName: DiskWatch
 copyright: Copyright © 2026 Taeyun Kim
 

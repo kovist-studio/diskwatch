@@ -3,6 +3,35 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## The appId is permanent from the first release (2026-08-27)
+
+**Decision:** `appId` is `app.kovist.diskwatch` — reverse-DNS of `kovist.app`, a
+domain that is actually owned. It was `com.diskwatch.app`, which reversed a
+domain nobody holds. **It must not change again after the first public release.**
+
+**Why it is not just a string.** On macOS the appId is the bundle identifier,
+and the bundle identifier is the key TCC files permissions under. When someone
+grants DiskWatch Full Disk Access — or Desktop, Documents, Downloads, or
+Removable Volumes, all four of which this app asks for by walking them — the
+grant is recorded against that identifier. Change it and the OS sees a program
+it has never met: every permission silently reverts, scans start failing on
+folders that worked yesterday, and the fix is for the user to go back into
+System Settings and re-grant by hand. Windows has a milder version of the same
+problem, where the appId keys the installer's upgrade path.
+
+That failure is also close to invisible from this side. The build succeeds, the
+app launches, and the damage shows up only on machines that had granted
+something — which is every existing user and no test machine.
+
+**So the window for getting it right is now**, before anything is published,
+which is why it moved from a domain nobody owns to one that is held. After the
+first release the cost of a rename is paid by users, one System Settings dialog
+at a time, and no cosmetic improvement is worth that.
+
+If it ever genuinely has to change, the honest path is a migration note in the
+release that tells people their permissions will need re-granting — not a quiet
+bump.
+
 ## OPEN — In-app updates are unresolved, not decided against (2026-08-27)
 
 **This is not a decision.** It is recorded here because the question has not

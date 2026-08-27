@@ -1,8 +1,11 @@
 # Trademark policy
 
-The **DiskWatch** name and logo are trademarks of the DiskWatch project
-(Taeyun Kim). They are **not** covered by the MIT license that governs the
-source code.
+The **DiskWatch** name and logo are trademarks of **Kovist** ([kovist.app](https://kovist.app)),
+the studio that develops it. They are **not** covered by the MIT license that
+governs the source code.
+
+Kovist is the studio; DiskWatch is the product. Forking the code does not carry
+either name with it.
 
 ## What this means
 
@@ -33,4 +36,4 @@ for the full reasoning behind the MIT + trademark posture.
 
 ## Questions
 
-Trademark questions: tyk201212@gmail.com
+Trademark questions: koviststudio@gmail.com
