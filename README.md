@@ -77,21 +77,41 @@ Not sure? Apple menu → About This Mac. "Chip" means Apple Silicon; "Processor"
 means Intel.
 
 1. Open the `.dmg` and drag **DiskWatch** to Applications.
-2. **The first launch needs one extra step.** Double-clicking will be refused,
-   with a message like *"Apple could not verify DiskWatch is free of malware"*
-   or *"DiskWatch can't be opened because it is from an unidentified
-   developer"*. That is expected — DiskWatch is unsigned, and
-   [here's why](#a-note-on-signing).
+2. **The first launch is refused, and the message is alarming.** macOS says:
 
-   **Right-click** (or Control-click) the app in Applications and choose
-   **Open**, then **Open** again in the dialog.
+   > **"DiskWatch is damaged and can't be opened. You should eject the disk
+   > image."**
 
-   On macOS 15 Sequoia and later, that right-click route may not appear. Instead:
-   try to open the app once and let it be blocked, then go to **System Settings →
-   Privacy & Security**, scroll to the message about DiskWatch, and click
-   **Open Anyway**.
+   **Nothing is damaged. Do not move it to the Trash.** This is the wording
+   macOS uses for an app whose signature it cannot verify, and DiskWatch is
+   unsigned — [here's why](#a-note-on-signing). It is the same message a
+   genuinely corrupted download would produce, which is exactly why the
+   [checksums](#verify-your-download) are published: if yours matches, the file
+   is the one we built and the message is only about signing.
 
-   You only do this once.
+   Getting past it, easiest first:
+
+   **Remove the download flag.** Open **Terminal** and run:
+
+   ```
+   xattr -d com.apple.quarantine /Applications/DiskWatch.app
+   ```
+
+   Then open DiskWatch normally. This clears the "downloaded from the internet"
+   marker macOS attached to this one app. It changes nothing else and disables
+   no protection.
+
+   **Or try System Settings.** Attempt to open DiskWatch and let it be refused,
+   then go to **System Settings → Privacy & Security** and scroll to the
+   Security section. If a line about DiskWatch appears there, click **Open
+   Anyway**, authenticate, and confirm at the next dialog. macOS does not always
+   offer this for the "damaged" case — if there is no such line, use the
+   Terminal command above.
+
+   On macOS 14 and earlier you may instead see *"unidentified developer"*, which
+   Control-click → **Open** clears. Sequoia removed that route.
+
+   Whichever route you take, you do it once.
 3. **macOS will ask permission** as you scan. Folders like Desktop, Documents
    and Downloads each prompt the first time. To scan the whole of your home
    folder or `~/Library` without gaps, grant **Full Disk Access** in
