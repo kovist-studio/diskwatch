@@ -51,3 +51,10 @@ settings.
 ## Build order
 v1 scan + treemap (read-only) → v2 security audit (read-only) →
 v3 cleanup (first writes) → v4 link checker
+
+## Git
+Commit straight to `main`. This is a solo repo with no review step and no
+protected branch, and the whole history is direct to main. Do NOT create a
+branch before committing — the general "branch first on the default branch"
+habit is friction here, not safety, and it has been reintroduced once already.
+Still commit only when asked.

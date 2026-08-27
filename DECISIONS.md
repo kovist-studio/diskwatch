@@ -3,6 +3,38 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## OPEN — In-app updates are unresolved, not decided against (2026-08-27)
+
+**This is not a decision.** It is recorded here because the question has not
+been asked yet and will be, and because its absence currently looks like an
+answer. Nothing below has been agreed.
+
+**The state of things:** `electron-updater` appears in PLAN.md §3 and was never
+installed. It is not a dependency, `publish: null` stops electron-builder
+publishing anything itself, and CI builds with `--publish never` and uploads
+through `gh release create`. So the app has no in-app updater — by omission,
+not by argument. No one weighed it and declined it.
+
+**The tension worth naming before someone does weigh it.** An auto-updater
+writes to the application bundle without being asked, which sits oddly in an app
+whose entire design is that nothing happens to your disk unless you chose it and
+can undo it. The whole of V3 went into making one delete provable and
+reversible; shipping a component that silently replaces the app's own binary is
+a different kind of write, aimed at a different target, with none of those gates
+in front of it.
+
+That is not an argument against having updates. Users on an old build of a tool
+that touches their filesystem is its own risk, and the §9 channels (Homebrew
+Cask, winget, Scoop) are updates too — they just put the person in the loop.
+The question is which of those this app should have, and it deserves the same
+treatment the Trash carve-out got: cost it properly, in the open, before writing
+it down as settled.
+
+Whoever picks this up: the honest options are (a) no in-app updater, notify only,
+(b) a check that tells the person a new version exists and links to it, or (c) a
+real updater. They are meaningfully different products and only (a) is currently
+true.
+
 ## V3 — The renderer is never told a path (2026-08-27)
 
 **Decision:** a survey tells the renderer what it needs to draw a list — label,
