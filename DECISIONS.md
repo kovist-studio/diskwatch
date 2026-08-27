@@ -3,6 +3,71 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## v1.0.0 — `gh` needs a repository, and two confident guesses were wrong (2026-08-27)
+
+**The bug:** the release job failed with
+
+```
+failed to run git: fatal: not a git repository (or any of the parent directories): .git
+```
+
+`gh` infers which repository to act on from the git remote of its working
+directory. The release job deliberately does **not** check out the source — it
+only needs the built artifacts — so there was no `.git` anywhere, and `gh
+release create` failed before it made a single API call.
+
+**The fix** is `GH_REPO: ${{ github.repository }}` alongside `GH_TOKEN`, set at
+the job level so both `gh` steps inherit it and cannot drift apart. Adding
+`actions/checkout` would also have worked, at the cost of cloning the entire
+source tree purely to publish three files. Naming the repository is cheaper and
+says what is actually meant.
+
+**Two plausible causes were inferred, and both were wrong.**
+
+The first was that the repository's default workflow permissions were
+read-only, capping the `permissions: contents: write` the workflow requests.
+This was entirely plausible: the org was hours old, new orgs default to
+read-only, and the failing step was the first one that writes. Acting on it
+cost a real settings change at both org and repo level — and changed nothing.
+The run failed again, identically.
+
+The second, never tested, was that `--generate-notes` was returning 422 with no
+previous release to diff against, or that pushing `v1.0.0` three times had left
+a stale ref association. Also plausible. Also wrong.
+
+**The error was in the log the whole time.** It was unreadable only because
+`gh` was not installed and the API log endpoint returns 403 unauthenticated.
+Installing it and reading the step output took one command and produced the
+answer immediately — after two rounds of inference, one of which sent the user
+into GitHub's settings to fix a problem that did not exist.
+
+The failure shape was even actively misleading in a way worth noticing: a
+permissions error and a missing-repository error both surface as a write step
+exiting 1, and the second is far less familiar. Plausibility ranked the wrong
+cause first, and plausibility is not evidence.
+
+This is the same lesson as the stdout premise recorded under the logging policy
+— *when a mechanism is checkable, check it rather than reasoning from what
+sounds likely* — except that here the reasoning was mine rather than inherited,
+and it cost more. Two entries in one project is enough to call it a pattern:
+**the cost of one command to observe is almost always lower than the cost of a
+confident guess.**
+
+**Afterwards the permission change was reverted to read-only and verified, not
+assumed.** The release job was re-run under the read-only default and passed,
+including `gh release upload --clobber`, which requires `contents: write`. So a
+workflow's own `permissions:` block does elevate above a restrictive repository
+default — the thing the first guess assumed was impossible. That is now an
+observed fact about this repository rather than a reading of the docs.
+
+*(The preceding failure in the same release was unrelated and simpler: Windows
+runners default to `core.autocrlf=true`, so the tracked vendored copy was
+checked out as CRLF while npm's tarball copy stayed LF, and the byte-for-byte
+`verify:vendor` check failed on Windows while passing on macOS. Fixed with a
+`.gitattributes` marking `src/renderer/vendor/** -text`. That one was diagnosed
+by mechanism and the diagnosis held — which is presumably why the same approach
+was trusted twice more than it deserved.)*
+
 ## The appId is permanent from the first release (2026-08-27)
 
 **Decision:** `appId` is `app.kovist.diskwatch` — reverse-DNS of `kovist.app`, a
