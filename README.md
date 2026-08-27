@@ -189,6 +189,48 @@ Get-FileHash .\DiskWatch-<version>-Setup-x64.exe -Algorithm SHA256
 The value must match the one published in that release's notes. If it doesn't,
 delete the file and download it again from GitHub Releases.
 
+#### Antivirus reports
+
+Every v1.0.1 installer has been submitted to **VirusTotal**, which runs a file
+past roughly 60–70 antivirus engines at once. **As of 2026-08-28, all three
+show no detections.**
+
+**`DiskWatch-1.0.1-arm64.dmg`** — [VirusTotal report](https://www.virustotal.com/gui/file/bbfea8268a30b73495596d9aa6c8848ecba1309244032e23a5188b9f68dd5419)
+
+```
+bbfea8268a30b73495596d9aa6c8848ecba1309244032e23a5188b9f68dd5419
+```
+
+**`DiskWatch-1.0.1-x64.dmg`** — [VirusTotal report](https://www.virustotal.com/gui/file/8d434e94c5848208e6d0d3993dd826e9bd214695e55b2c9dc2d2b01178a2473b)
+
+```
+8d434e94c5848208e6d0d3993dd826e9bd214695e55b2c9dc2d2b01178a2473b
+```
+
+**`DiskWatch-1.0.1-Setup-x64.exe`** — [VirusTotal report](https://www.virustotal.com/gui/file/13a835cf5d9f16440e1dc0a0c2b2c610c11c2ce448f93600bf21fd1fc0506db6)
+
+```
+13a835cf5d9f16440e1dc0a0c2b2c610c11c2ce448f93600bf21fd1fc0506db6
+```
+
+A VirusTotal report is addressed **by the file's SHA-256**, so the hash is
+inside each link above. If the checksum you computed matches the one in the
+URL, the report you are reading is unambiguously about the file on your disk —
+not about some other build that happens to share a name.
+
+**These reports are live, and that is the point of linking them.** Engines
+update their heuristics constantly, and unsigned software — Electron
+applications and NSIS installers especially — can begin tripping one or two of
+them without anything about the file changing. A count printed here would be a
+claim about one moment that nobody can check. The links show you the current
+result instead. If you see a small number of detections where this page says
+none, that is the expected shape of a false positive on unsigned software, and
+the checksum above is how you confirm your copy is the one we built.
+
+The hashes are specific to **v1.0.1**. Every release publishes its own
+`SHA256SUMS.txt` alongside its installers, and the checksums appear in that
+release's notes.
+
 ---
 
 ## Building it yourself
