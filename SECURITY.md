@@ -5,7 +5,7 @@
 Please report security issues **privately**. Do not open a public GitHub issue
 for a suspected vulnerability.
 
-- **Email:** tyk201212@gmail.com
+- **Email:** koviststudio@gmail.com
 - Suggested subject: `DiskWatch security`
 
 Include, if you can:
