@@ -121,15 +121,21 @@ jobs:
             echo "   OK: valid, $id, flags=$flags, assessable by Gatekeeper"
           done
 
-      # Only the installers travel onward. The unpacked app directories and the
-      # auto-update blockmaps are build intermediates, and checksumming a
-      # 373 MB unpacked tree would bury the two lines users actually need.
+      # Only the distributable files travel onward. The unpacked app
+      # directories and the .blockmap sidecars are build intermediates, and
+      # checksumming a 373 MB unpacked tree would bury the lines users actually
+      # need. Each glob ends in the extension, so *.zip.blockmap is not matched.
+      #
+      # Everything uploaded here is checksummed and attached to the release by
+      # the job below, which globs whatever it downloads — so a new target only
+      # has to be added to this list.
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.os }}
           path: |
             dist/*.dmg
+            dist/*.zip
             dist/*.exe
           if-no-files-found: error
 

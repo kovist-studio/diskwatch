@@ -27,8 +27,22 @@ publish: null
 mac:
   category: public.app-category.utilities
   icon: build/icon.icns
+  # Default name for every macOS target. There is no top-level `zip:` section in
+  # electron-builder's schema, so this is where the zip gets its name — and it
+  # needs one, because the default leaves the primary arch unsuffixed:
+  # "DiskWatch-1.0.1-mac.zip" beside "DiskWatch-1.0.1-arm64-mac.zip". The
+  # unsuffixed one reads as "the normal download", which is the same trap the
+  # dmg block below calls out. `dmg.artifactName` still overrides this for dmg.
+  artifactName: ${productName}-${version}-${arch}.${ext}
   target:
     - target: dmg
+      arch:
+        - arm64
+        - x64
+    # A .zip beside each .dmg. The dmg is the friendlier double-click download;
+    # the zip is what Homebrew Cask and scripted installs prefer, and it moves
+    # around without needing a mount step.
+    - target: zip
       arch:
         - arm64
         - x64

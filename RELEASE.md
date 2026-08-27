@@ -62,7 +62,8 @@ gh release view vX.Y.Z --repo kovist-studio/diskwatch \
   --json assets --jq '.assets[] | "\(.name)  \(.size)"'
 ```
 
-Expect **four**: `-arm64.dmg`, `-x64.dmg`, `-Setup-x64.exe`, `SHA256SUMS.txt`.
+Expect **six**: `-arm64.dmg`, `-x64.dmg`, `-arm64.zip`, `-x64.zip`,
+`-Setup-x64.exe`, `SHA256SUMS.txt`.
 
 Then verify the published sums against the bytes actually served:
 
