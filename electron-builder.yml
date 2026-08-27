@@ -32,13 +32,26 @@ mac:
       arch:
         - arm64
         - x64
-  # UNSIGNED, deliberately. Signing needs a paid Apple Developer account; until
-  # there is one, an ad-hoc or absent signature is more honest than a
-  # half-measure, and the README tells users exactly what they will see and why.
-  # `identity: null` stops electron-builder from picking up any certificate that
-  # happens to be in the developer's keychain — builds must be reproducible from
-  # CI, not dependent on whose machine they ran on.
-  identity: null
+  # UNSIGNED by any certificate, deliberately: signing needs a paid Apple
+  # Developer account, and until there is one the README tells users exactly
+  # what they will see and why.
+  #
+  # "-" is codesign's AD-HOC identity, not a certificate. It still involves no
+  # key material and no account, so builds stay reproducible from CI rather than
+  # depending on whose keychain they ran against — which is what `identity: null`
+  # was for. But null went further than intended: it disabled signing outright,
+  # leaving the ad-hoc signature Electron's own linker puts on the binary. That
+  # signature identifies the app as "Electron" and does not cover the bundle
+  # electron-builder then assembles, so `codesign --verify` fails with "code has
+  # no resources but signature indicates they must be present".
+  #
+  # macOS reports an app whose signature FAILS validation as *damaged* — the
+  # same message as a corrupt download — rather than merely unverified, and
+  # Sequoia offers no Open Anyway for that case. v1.0.0 shipped this way.
+  # Ad-hoc signing the whole bundle makes the signature internally consistent,
+  # so the app is untrusted rather than broken, which is the accurate thing for
+  # it to be.
+  identity: "-"
   # Hardened runtime and notarization both require a real signature; enabling
   # them unsigned produces an app that will not launch at all.
   hardenedRuntime: false

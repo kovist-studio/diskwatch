@@ -1,7 +1,7 @@
 {
   "name": "diskwatch",
   "productName": "DiskWatch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A free, open-source desktop app that shows what's on a disk, whether it's protected, and what's safe to remove.",
   "license": "MIT",
   "author": "Taeyun Kim",
