@@ -3,6 +3,92 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## v1.0.1 — `identity: null` does not mean "ship unsigned" (2026-08-27)
+
+**Decision:** `mac.identity` is `"-"`, codesign's ad-hoc identity. It was
+`null`, and v1.0.0 shipped a macOS app that Gatekeeper reported as **damaged**.
+
+**The distinction the whole bug turns on.** `identity: null` reads like "ship
+without a signature". It does not mean that. It means *skip the signing step
+entirely* — and skipping is not the same as producing an unsigned app, because
+the app is not unsigned to begin with. Electron's own binary arrives carrying
+an ad-hoc signature applied by the linker, identifying it as `Electron`.
+electron-builder then assembles a bundle around that binary — renames it, adds
+the asar, adds resources — and, told to skip signing, leaves the linker's
+signature in place over a bundle it no longer describes.
+
+The result is not a missing signature. It is a **present signature that claims
+resources which do not match**:
+
+```
+code has no resources but signature indicates they must be present
+```
+
+**And that is why the message was "damaged".** A *missing* signature means
+untrusted: macOS says the developer cannot be verified, and Privacy & Security
+offers Open Anyway. A *broken* signature means tampered: the bytes do not match
+what the signature attests, which is indistinguishable from someone having
+modified the app after it was signed. macOS reports that as
+*"DiskWatch is damaged and can't be opened. You should eject the disk image."*
+and Sequoia offers no Open Anyway, because there is nothing safe to offer.
+
+So the worst-sounding message in the entire install flow was attached to the
+one thing that was genuinely our fault, and its advice — delete it — was the
+only advice a user could reasonably follow. Every download was told the app was
+corrupt.
+
+**The check that tells the two states apart**, and the reason to run it rather
+than eyeball a config file:
+
+```
+v1.0.0:  CodeDirectory ... flags=0x20002(adhoc,linker-signed)   Identifier=Electron
+         codesign --verify --deep --strict -> FAILS
+
+v1.0.1:  CodeDirectory ... flags=0x2(adhoc)                     Identifier=app.kovist.diskwatch
+         codesign --verify --deep --strict -> valid on disk, satisfies its Designated Requirement
+         spctl -a -vv                      -> rejected
+```
+
+`linker-signed` in the flags is the fingerprint of the broken state. Its absence
+is the fingerprint of the fixed one. `spctl` returning a plain **rejected** is
+the goal, not a failure: it means Gatekeeper can assess the app and declines to
+trust it, which is the honest status of software with no Developer ID. An
+*error* from `spctl` means it could not assess the app at all, which is what
+v1.0.0 produced.
+
+Ad-hoc signing costs nothing that `null` was protecting. There is still no
+certificate, no key material, no Apple account, and no dependence on whose
+keychain the build ran against — which was the entire reason `null` was chosen.
+
+**How it was found is the part worth keeping.** Not by review, and not by any
+test. Every check this project runs — the 229-test suite, `npm start`, the
+`--dev` runs, the CI build itself — executes **from source**. None of them
+package an app bundle, so none of them produce a signature, so the defect is
+not merely unnoticed by them: it is *structurally invisible* to them. There is
+no assertion that could have been added to the suite to catch it, because the
+artifact that carries the bug is never built in that path.
+
+It took downloading the published `.dmg`, mounting it, and inspecting the app
+the way a user's Mac does.
+
+That is exactly the shape of the trash-and-restore loop recorded earlier: the
+suite injects a fake trasher and therefore cannot prove that anything is
+recoverable, so the real `shell.trashItem` had to be run against a real disk
+before the claim meant anything. Two different subsystems, same category of
+gap — **the last mile between what the tests execute and what the user
+receives, which by construction no test in that suite can cross.**
+
+The general form: when a defect can only exist in an artifact your test path
+never produces, no amount of testing rigour will find it. The only remedy is to
+obtain the artifact the way the user does and put it through what the user's
+machine puts it through.
+
+**Worth doing next:** the three verification commands above are cheap and
+deterministic, and CI has the built `.app` in hand immediately after packaging.
+A `codesign --verify --deep --strict` step in the macOS build job would turn
+this from something caught by a user report into something that fails the
+release. It is not yet wired up.
+
 ## v1.0.0 — `gh` needs a repository, and two confident guesses were wrong (2026-08-27)
 
 **The bug:** the release job failed with
