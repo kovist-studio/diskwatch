@@ -1,0 +1,11 @@
+# The vendored d3-hierarchy copy is compared byte-for-byte against the npm
+# package by `npm run verify:vendor`, and the npm copy arrives from a tarball
+# rather than from a git checkout. Git must therefore not rewrite its line
+# endings on the way out: GitHub's windows-latest runners default to
+# core.autocrlf=true, so without this the tracked file is checked out as CRLF
+# while the npm copy stays LF, and `cmp` reports a difference that does not
+# exist in the repository.
+#
+# This is not hypothetical. CI run #1 for v1.0.0 failed at exactly this step on
+# Windows and passed on macOS, which is the signature of the problem.
+src/renderer/vendor/** -text
