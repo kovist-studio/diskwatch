@@ -75,6 +75,15 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    # This job deliberately does NOT check out the repository — it only needs
+    # the built artifacts, not the source. But `gh` infers which repository to
+    # act on from the git remote of the working directory, so with no checkout
+    # it fails with "not a git repository" before it makes a single API call.
+    # GH_REPO tells it directly, which is cheaper and more explicit than
+    # cloning the source purely to publish three files.
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -94,8 +103,6 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: Create release and upload artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF_NAME}"
           # Idempotent: create the release with auto-generated notes if it
@@ -106,8 +113,6 @@ jobs:
           gh release upload "$TAG" artifacts/* --clobber
 
       - name: Append checksums to release notes
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF_NAME}"
           BODY="$(gh release view "$TAG" --json body --jq .body)"
