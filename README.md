@@ -61,7 +61,7 @@ cleaning — will ship **off**, in Advanced Settings, if it ships at all.
 
 **Requirements:** macOS 12 Monterey or later, or Windows 10 or later (64-bit).
 
-Download from **[GitHub Releases](https://github.com/kovist-studio/DiskWatch/releases)**.
+Download from **[GitHub Releases](https://github.com/kovist-studio/diskwatch/releases)**.
 Nowhere else — see [Official downloads](#official-downloads) below.
 
 ### macOS
@@ -148,7 +148,7 @@ check the checksum.
 
 DiskWatch is distributed **only** from these sources:
 
-- **GitHub Releases:** https://github.com/kovist-studio/DiskWatch/releases
+- **GitHub Releases:** https://github.com/kovist-studio/diskwatch/releases
 - **Homebrew tap:** _(coming later)_
 
 > **Anything else is not ours.** Builds of "DiskWatch" from any other website,
