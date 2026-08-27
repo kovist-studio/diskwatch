@@ -145,7 +145,7 @@ The disk scan runs in a **worker thread**. A synchronous walk of a 500GB drive f
 ### File layout
 
 ```
-<projectname>/
+DiskWatch/
 ├── package.json
 ├── electron-builder.yml
 ├── LICENSE                     # MIT
