@@ -11,41 +11,18 @@
     "requiresAppClosed": "Applications that must not be running. Empty when none apply.",
     "requiresAdmin": "Needs rights DiskWatch does not ask for. Present only when true.",
     "minAgeDays": "Only files last modified more than this many days ago are eligible. Present only when the entry is age-filtered.",
-    "method": "trash = hand the path to the trash package. emptyTrash = the platform's own empty-the-bin call, which is permanent and cannot use the trash package. Absent means trash.",
+    "method": "Always \"trash\", or absent, which means the same: hand the path to the trash package. Nothing in this app deletes permanently, so there is no other value. The field is kept only so the loader has something to reject — \"emptyTrash\" was a real value for one phase and is now a hard error.",
     "exclude": "Paths under this target that must never be touched, even when the glob matches them.",
     "note": "Something the implementer has to know that the user-facing description should not carry.",
-    "confirm": "Confirmation contract for an irreversible entry. Present only on emptyTrash entries. mustState names the facts the dialog has to show; mustContainWord is literal copy that has to appear. A UI that cannot satisfy it must not offer the entry.",
     "expand": "Expansion contract. When present, the target is NOT selectable as a single unit — the UI must resolve it into the listed items first, and each is chosen separately. wholeTargetSelectable is always false here; that is the point of the field. ifUnsupported says what to do when phase 2 cannot implement it, and \"omit\" means the entry does not ship at all rather than degrading to a folder-level checkbox."
   },
   "targets": [
-    {
-      "id": "macos-trash",
-      "label": "Trash",
-      "platform": "darwin",
-      "path": "~/.Trash",
-      "description": "Files you have already deleted. Emptying the Trash is permanent — this is the one thing here that cannot be undone.",
-      "risk": "caution",
-      "defaultEnabled": false,
-      "requiresAppClosed": [],
-      "method": "emptyTrash",
-      "note": "Cannot go through the trash package: you cannot trash the Trash. Needs the Finder/NSFileManager empty call. This is the only permanent deletion in the app and it needs its own confirmation. Per-volume bins at /Volumes/*/.Trashes are deliberately not included — external drives are somebody else's storage. Permitted by the single documented exception in CLAUDE.md, which covers these two ids and no others. It must not share a code path with trash-based cleanup: a separate function, not a flag on the existing one.",
-      "confirm": {
-        "style": "permanent",
-        "mustState": [
-          "itemCount",
-          "totalSize"
-        ],
-        "mustContainWord": "permanently",
-        "separateCodePath": true,
-        "excludeFromSelectAll": true
-      }
-    },
     {
       "id": "macos-user-caches",
       "label": "Application caches",
       "platform": "darwin",
       "path": "~/Library/Caches/*",
-      "description": "Working files apps keep to avoid redoing work. Apps rebuild them as they run; the first launch after this will be slower.",
+      "description": "Copies apps keep so they do not have to redo work they have already done. Each app builds its own again as it runs, so the first time you open an app after this it will be a little slower.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": [],
@@ -61,7 +38,7 @@
       "label": "Xcode DerivedData",
       "platform": "darwin",
       "path": "~/Library/Developer/Xcode/DerivedData",
-      "description": "Build intermediates. Xcode regenerates these; the next build will be slower.",
+      "description": "Files Xcode made while building your projects. Xcode rebuilds them automatically — your next build just takes longer.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": [
@@ -73,7 +50,7 @@
       "label": "iOS Simulator caches",
       "platform": "darwin",
       "path": "~/Library/Developer/CoreSimulator/Caches",
-      "description": "Prepared simulator data that Xcode rebuilds on demand. Your simulators and anything installed on them are untouched.",
+      "description": "Files Xcode prepared so the iPhone and iPad simulators start faster. Xcode makes them again the next time you run a simulator, and the simulators themselves stay exactly as they are.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": [
@@ -87,7 +64,7 @@
       "label": "npm cache",
       "platform": "darwin",
       "path": "~/.npm/_cacache",
-      "description": "Packages npm saved so it would not have to download them twice. The next install re-downloads what it needs.",
+      "description": "Copies of code packages npm saved so it would not have to download the same ones twice. npm downloads whatever it needs again the next time you install something, which takes an internet connection.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": []
@@ -97,7 +74,7 @@
       "label": "pip cache",
       "platform": "darwin",
       "path": "~/Library/Caches/pip",
-      "description": "Python packages pip saved so it would not have to download them twice. The next install re-downloads what it needs.",
+      "description": "Copies of Python packages pip saved so it would not have to download the same ones twice. pip downloads whatever it needs again the next time you install something, which takes an internet connection.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": []
@@ -107,7 +84,7 @@
       "label": "Cargo registry cache",
       "platform": "darwin",
       "path": "~/.cargo/registry/cache",
-      "description": "Downloaded Rust crate archives. Cargo fetches them again when a build needs them.",
+      "description": "Copies of Rust code libraries Cargo downloaded for your projects. Cargo downloads them again the next time a build needs them, which takes an internet connection.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": [],
@@ -118,7 +95,7 @@
       "label": "Homebrew cache",
       "platform": "darwin",
       "path": "~/Library/Caches/Homebrew",
-      "description": "Installers Homebrew downloaded and no longer needs. It downloads them again if you reinstall something.",
+      "description": "Installer files Homebrew downloaded to set up your software and does not need again. Homebrew downloads a fresh copy if you ever reinstall or update that software.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": []
@@ -128,7 +105,7 @@
       "label": "iPhone and iPad backups",
       "platform": "darwin",
       "path": "~/Library/Application Support/MobileSync/Backup",
-      "description": "Full backups of devices synced to this Mac. These are the copy you would restore from if a device were lost or replaced.",
+      "description": "Complete copies of your iPhone or iPad, kept on this Mac. This is what you would restore from if a device were lost, broken, or replaced, and nothing makes it again for you.",
       "risk": "caution",
       "defaultEnabled": false,
       "requiresAppClosed": [
@@ -154,7 +131,7 @@
       "label": "Downloads older than 90 days",
       "platform": "darwin",
       "path": "~/Downloads",
-      "description": "Files you downloaded more than 90 days ago and have not opened since. These are your files — look before you agree.",
+      "description": "Files you downloaded more than 90 days ago and have not opened since. These are your own files rather than copies of something else — nothing downloads them again for you.",
       "risk": "caution",
       "defaultEnabled": false,
       "requiresAppClosed": [],
@@ -162,33 +139,11 @@
       "note": "Age-filtered per file, never the folder. Use the later of modification and last-access time: an installer kept deliberately and opened last week must not read as 90 days old because it was downloaded a year ago."
     },
     {
-      "id": "windows-recycle-bin",
-      "label": "Recycle Bin",
-      "platform": "win32",
-      "path": "C:\\$Recycle.Bin",
-      "description": "Files you have already deleted. Emptying the Recycle Bin is permanent — this is the one thing here that cannot be undone.",
-      "risk": "caution",
-      "defaultEnabled": false,
-      "requiresAppClosed": [],
-      "method": "emptyTrash",
-      "note": "Same problem as the macOS Trash: it cannot go through the trash package. Needs SHEmptyRecycleBin. Never enumerate or delete inside C:\\$Recycle.Bin directly — the per-SID layout is undocumented and writing into it corrupts the bin for that user. Permitted by the single documented exception in CLAUDE.md, which covers these two ids and no others. It must not share a code path with trash-based cleanup: a separate function, not a flag on the existing one.",
-      "confirm": {
-        "style": "permanent",
-        "mustState": [
-          "itemCount",
-          "totalSize"
-        ],
-        "mustContainWord": "permanently",
-        "separateCodePath": true,
-        "excludeFromSelectAll": true
-      }
-    },
-    {
       "id": "windows-user-temp",
       "label": "Temporary files",
       "platform": "win32",
       "path": "%TEMP%",
-      "description": "Scratch files programs left behind. Anything still in use is skipped.",
+      "description": "Scratch files programs write while they work and are meant to tidy up afterwards. Programs make new ones whenever they need them, and anything open right now is left alone.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": [],
@@ -199,7 +154,7 @@
       "label": "Google Chrome cache",
       "platform": "win32",
       "path": "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Cache",
-      "description": "Pages and images Chrome saved so they load faster. Chrome rebuilds it as you browse. You stay signed in.",
+      "description": "Copies of pages and pictures Chrome saved so sites load faster when you go back to them. Chrome builds them up again as you browse, and you stay signed in to your sites.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": [
@@ -212,7 +167,7 @@
       "label": "Microsoft Edge cache",
       "platform": "win32",
       "path": "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Cache",
-      "description": "Pages and images Edge saved so they load faster. Edge rebuilds it as you browse. You stay signed in.",
+      "description": "Copies of pages and pictures Edge saved so sites load faster when you go back to them. Edge builds them up again as you browse, and you stay signed in to your sites.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": [
@@ -224,7 +179,7 @@
       "label": "Firefox cache",
       "platform": "win32",
       "path": "%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2",
-      "description": "Pages and images Firefox saved so they load faster. Firefox rebuilds it as you browse. You stay signed in.",
+      "description": "Copies of pages and pictures Firefox saved so sites load faster when you go back to them. Firefox builds them up again as you browse, and you stay signed in to your sites.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": [
@@ -237,7 +192,7 @@
       "label": "npm cache",
       "platform": "win32",
       "path": "%LOCALAPPDATA%\\npm-cache",
-      "description": "Packages npm saved so it would not have to download them twice. The next install re-downloads what it needs.",
+      "description": "Copies of code packages npm saved so it would not have to download the same ones twice. npm downloads whatever it needs again the next time you install something, which takes an internet connection.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": [],
@@ -248,7 +203,7 @@
       "label": "pip cache",
       "platform": "win32",
       "path": "%LOCALAPPDATA%\\pip\\Cache",
-      "description": "Python packages pip saved so it would not have to download them twice. The next install re-downloads what it needs.",
+      "description": "Copies of Python packages pip saved so it would not have to download the same ones twice. pip downloads whatever it needs again the next time you install something, which takes an internet connection.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": []
@@ -258,7 +213,7 @@
       "label": "Cargo registry cache",
       "platform": "win32",
       "path": "%USERPROFILE%\\.cargo\\registry\\cache",
-      "description": "Downloaded Rust crate archives. Cargo fetches them again when a build needs them.",
+      "description": "Copies of Rust code libraries Cargo downloaded for your projects. Cargo downloads them again the next time a build needs them, which takes an internet connection.",
       "risk": "safe",
       "defaultEnabled": false,
       "requiresAppClosed": []
@@ -268,7 +223,7 @@
       "label": "Downloads older than 90 days",
       "platform": "win32",
       "path": "%USERPROFILE%\\Downloads",
-      "description": "Files you downloaded more than 90 days ago and have not opened since. These are your files — look before you agree.",
+      "description": "Files you downloaded more than 90 days ago and have not opened since. These are your own files rather than copies of something else — nothing downloads them again for you.",
       "risk": "caution",
       "defaultEnabled": false,
       "requiresAppClosed": [],
@@ -277,6 +232,14 @@
     }
   ],
   "excluded": [
+    {
+      "path": "~/.Trash",
+      "reason": "Emptying the Trash was carved out of the no-permanent-deletion rule for one phase, and then removed. Reading ~/.Trash at all needs Full Disk Access, and this app asks for no permission anywhere else — the security audit degrades a check to unknown rather than prompting. Requesting the broadest permission macOS has, in order to enable the single irreversible operation in the product, is backwards. Finder already offers Empty Trash where people expect to find it. Do not re-propose it: the rule it needed an exception to is now absolute."
+    },
+    {
+      "path": "C:\\$Recycle.Bin",
+      "reason": "Dropped together with ~/.Trash. It carried no permission cost of its own — it existed only as the Windows half of the same exception, and a rule with one carve-out in it is not the rule without one. SHEmptyRecycleBin is permanent and cannot go through the trash package, and Explorer already offers Empty Recycle Bin. Do not re-propose it on its own."
+    },
     {
       "path": "C:\\Windows.old",
       "reason": "Excluded by instruction, and the reasoning holds: it is the only copy of the previous Windows install and of any user file that did not survive the upgrade. Windows removes it on its own after ten days. Deleting it wrongly is unrecoverable, and it needs handling this list cannot express."

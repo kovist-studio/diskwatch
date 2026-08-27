@@ -685,6 +685,582 @@
     // runScan settles on its own once the worker unwinds.
   });
 
+  // ---------- Clean ----------
+  //
+  // The renderer holds no paths. A row knows its target id, its figures and an
+  // opaque list of tokens; removal sends tokens and nothing else. There is no
+  // code path here that can name a place on disk, which is why there is no
+  // validation here that would have to try.
+  //
+  // Rows arrive one target at a time. A full survey walks every cache
+  // directory the allowlist points at and takes about 17 seconds, so waiting
+  // for the whole thing before drawing anything would show an empty pane for
+  // that entire time.
+  const clean = (function () {
+    const stages = {
+      empty: el('clean-stage-empty'),
+      list: el('clean-stage-list'),
+      confirm: el('clean-stage-confirm'),
+      result: el('clean-stage-result'),
+      error: el('clean-stage-error'),
+    };
+
+    const buttons = {
+      back: el('clean-back'),
+      survey: el('clean-survey'),
+      review: el('clean-review'),
+      confirm: el('clean-confirm'),
+      again: el('clean-again'),
+    };
+
+    const elStatus = el('clean-status');
+    const elReassure = el('clean-reassure');
+    const elList = el('clean-targets');
+    const elNote = el('clean-note');
+    const elSelected = el('clean-selected');
+    const elSelCount = el('sel-count');
+    const elSelSize = el('sel-size');
+
+    // id -> { report, checkbox, sizeEl, countEl, row }. The single record of
+    // what is on screen; nothing reads the DOM back to decide anything.
+    const rows = new Map();
+    let unsubscribe = null;
+    let surveying = false;
+
+    const items = (n) => `${count(n)} ${n === 1 ? 'item' : 'items'}`;
+
+    function setStage(name) {
+      Object.keys(stages).forEach((k) => {
+        if (stages[k]) stages[k].hidden = k !== name;
+      });
+    }
+
+    function setActions(visible) {
+      Object.keys(buttons).forEach((k) => {
+        const btn = buttons[k];
+        if (!btn) return;
+        btn.hidden = !visible[k];
+        btn.disabled = false;
+      });
+    }
+
+    // Where things went and how to get them back, in the words of whichever OS
+    // this is. Restoring is one sentence, not a link to a help page.
+    // Written for someone who has never deleted anything from a computer on
+    // purpose. It names the destination and the way back, in that order.
+    function setReassurance() {
+      elReassure.textContent = isMac
+        ? 'Nothing here is deleted. Anything you pick is moved to the Trash, and you can ' +
+          'drag it back out whenever you want.'
+        : 'Nothing here is deleted. Anything you pick is moved to the Recycle Bin, and you ' +
+          'can put it back whenever you want.';
+    }
+
+    function trashLine(n) {
+      const what = n === 1 ? 'It is' : 'They are';
+      return isMac
+        ? `${what} in the Trash. Open the Trash, right-click, and choose Put Back to restore ` +
+          `${n === 1 ? 'it' : 'them'} to where ${n === 1 ? 'it was' : 'they were'}.`
+        : `${what} in the Recycle Bin. Open it, right-click, and choose Restore to put ` +
+          `${n === 1 ? 'it' : 'them'} back.`;
+    }
+
+    // ---------- Selection ----------
+
+    function selection() {
+      const chosen = [];
+      rows.forEach((row) => {
+        if (row.checkbox && row.checkbox.checked) chosen.push(row);
+      });
+      return chosen;
+    }
+
+    function refreshTotals() {
+      const chosen = selection();
+      const bytes = chosen.reduce((a, r) => a + r.report.bytes, 0);
+      const n = chosen.reduce((a, r) => a + r.report.count, 0);
+
+      elSelected.hidden = chosen.length === 0;
+      elSelCount.textContent = items(n);
+      elSelSize.textContent = formatBytes(bytes);
+
+      if (buttons.review) {
+        buttons.review.disabled = chosen.length === 0 || surveying;
+        buttons.review.textContent =
+          chosen.length === 0 ? 'Review selection' : `Review ${items(n)}`;
+      }
+    }
+
+    // ---------- Rows ----------
+
+    // A target whose items are the person's OWN files gets a gate: the checkbox
+    // is disabled until they have opened the list and looked at it.
+    //
+    // Everything else in the allowlist is a cache — the app that made it makes
+    // it again, so the cost of being wrong is a slower launch. Downloads are
+    // not that. They are files the person went and got, nothing regenerates
+    // them, and there are over a thousand of them behind one checkbox. Making
+    // the list a thing you have to open is the smallest change that stops a
+    // single click from meaning more than it looks like it means.
+    //
+    // The rule keys off the unit, not the id: a per-file target IS one whose
+    // items are individual files rather than a rebuildable directory, so a new
+    // target of that shape inherits the gate without anyone remembering to.
+    const isGated = (report) => report.unit === 'file';
+
+    function span(className, text) {
+      const s = document.createElement('span');
+      s.className = className;
+      s.textContent = text;
+      return s;
+    }
+
+    function makeRow(entry, kind) {
+      const gated = kind === 'ready' && entry.gated === true;
+
+      const row = document.createElement('div');
+      row.className = `target target--${kind}`;
+
+      const top = document.createElement('div');
+      top.className = 'target__top';
+
+      const main = document.createElement('label');
+      main.className = 'target__main';
+
+      let checkbox = null;
+      if (kind === 'ready') {
+        checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'target__check';
+        // NEVER checked here, and there is no branch below that sets it.
+        // Nothing is pre-selected: the loader rejects a defaultEnabled entry
+        // outright, and the UI must not reintroduce one by the back door.
+        checkbox.checked = false;
+        // A gated row starts unusable and is opened by looking, not by asking.
+        checkbox.disabled = gated;
+        checkbox.addEventListener('change', refreshTotals);
+        main.appendChild(checkbox);
+      } else {
+        const spacer = document.createElement('span');
+        spacer.className = 'target__check';
+        spacer.setAttribute('aria-hidden', 'true');
+        main.appendChild(spacer);
+      }
+
+      const text = document.createElement('span');
+      text.className = 'target__text';
+      text.appendChild(span('target__label', entry.label));
+
+      if (entry.description) text.appendChild(span('target__desc', entry.description));
+
+      // Why this row cannot be chosen, in place, rather than an absence to
+      // puzzle over.
+      if (kind !== 'ready') text.appendChild(span('target__state', entry.stateText || ''));
+
+      if (entry.requiresAppClosed && entry.requiresAppClosed.length > 0) {
+        text.appendChild(
+          span('target__needs', `Close ${entry.requiresAppClosed.join(' and ')} first.`),
+        );
+      }
+
+      let gate = null;
+      if (gated) {
+        gate = span('target__gate', 'Look through the list before choosing this.');
+        text.appendChild(gate);
+      }
+
+      main.appendChild(text);
+      top.appendChild(main);
+
+      const figures = document.createElement('span');
+      figures.className = 'target__figures';
+      const size = span('target__size mono', entry.sizeText || '');
+      figures.appendChild(size);
+      const countEl = span('target__count microlabel', entry.countText || '');
+      figures.appendChild(countEl);
+      if (entry.risk === 'caution') figures.appendChild(span('target__risk', 'Caution'));
+
+      top.appendChild(figures);
+      row.appendChild(top);
+
+      // The disclosure lives outside the <label>: a button inside one would
+      // toggle the checkbox on every click, which is precisely the accident
+      // this gate exists to prevent.
+      if (gated) {
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'btn btn--ghost target__disclose';
+        toggle.textContent = 'Show what’s included';
+        toggle.setAttribute('aria-expanded', 'false');
+
+        const panel = document.createElement('div');
+        panel.className = 'target__contents';
+        panel.hidden = true;
+
+        let loaded = false;
+        toggle.addEventListener('click', async () => {
+          if (!loaded) {
+            toggle.disabled = true;
+            toggle.textContent = 'Reading…';
+            const data = await api.cleaner.contents(entry.id);
+            toggle.disabled = false;
+            loaded = true;
+            renderContents(panel, data);
+            // Looking is what unlocks it. Nothing else does.
+            if (checkbox) checkbox.disabled = false;
+            if (gate) gate.remove();
+          }
+          const open = panel.hidden;
+          panel.hidden = !open;
+          toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+          toggle.textContent = open ? 'Hide the list' : 'Show what’s included';
+        });
+
+        row.appendChild(toggle);
+        row.appendChild(panel);
+      }
+
+      return { row, checkbox, size, countEl };
+    }
+
+    function renderContents(panel, data) {
+      panel.textContent = '';
+
+      if (!data || !data.ok || data.items.length === 0) {
+        panel.appendChild(span('target__state', 'That list could not be read.'));
+        return;
+      }
+
+      const list = document.createElement('ul');
+      list.className = 'filelist';
+
+      // Names and dates only — the survey never sent a path and this does not
+      // either. A filename is what you recognise your own file by.
+      for (const item of data.items) {
+        const li = document.createElement('li');
+        li.className = 'filelist__row';
+        li.appendChild(span('filelist__name', item.name));
+        li.appendChild(span('filelist__date', formatDate(item.mtimeMs)));
+        li.appendChild(span('filelist__size mono', formatBytes(item.bytes)));
+        list.appendChild(li);
+      }
+      panel.appendChild(list);
+
+      // Say what is not shown rather than quietly showing less.
+      if (data.shown < data.total) {
+        panel.appendChild(
+          span(
+            'target__state',
+            `Showing the ${count(data.shown)} most recent of ${count(data.total)}. ` +
+              'Choosing this row still covers all of them.',
+          ),
+        );
+      }
+    }
+
+    function renderPending(pending) {
+      elList.textContent = '';
+      rows.clear();
+      for (const t of pending) {
+        const built = makeRow(
+          { ...t, sizeText: '—', countText: 'measuring', stateText: '' },
+          'pending',
+        );
+        elList.appendChild(built.row);
+        rows.set(t.id, { report: { bytes: 0, count: 0, tokens: [] }, ...built, entry: t });
+      }
+    }
+
+    // Replaces a measuring row in place with what was actually found. Three
+    // outcomes, told apart deliberately: not on this machine, here but with
+    // nothing to remove, and here with something to offer.
+    function settleRow(report) {
+      const existing = rows.get(report.id);
+      if (!existing) return;
+
+      let kind = 'ready';
+      let stateText = '';
+      let sizeText = formatBytes(report.bytes);
+      let countText = items(report.count);
+
+      if (!report.present) {
+        kind = 'absent';
+        stateText = 'Not present on this machine.';
+        sizeText = '—';
+        countText = '';
+      } else if (report.count === 0) {
+        kind = 'absent';
+        stateText =
+          report.refusedCount > 0
+            ? 'Nothing to remove — everything here is on the protected list.'
+            : 'Nothing to remove — it is already empty.';
+        sizeText = '—';
+        countText = '';
+      }
+
+      const built = makeRow(
+        { ...existing.entry, ...report, sizeText, countText, stateText, gated: isGated(report) },
+        kind,
+      );
+      elList.replaceChild(built.row, existing.row);
+      rows.set(report.id, { report, ...built, entry: existing.entry });
+      refreshTotals();
+    }
+
+
+    function renderUnavailable(list) {
+      for (const u of list) {
+        const built = makeRow(
+          {
+            ...u,
+            sizeText: '—',
+            countText: '',
+            // The reason is the loader's own, shown rather than summarised:
+            // an entry withheld by its expand contract is a deliberate
+            // decision and the person is owed the actual grounds.
+            stateText: `Not available: ${u.reason}`,
+          },
+          'unavailable',
+        );
+        elList.appendChild(built.row);
+      }
+    }
+
+    // ---------- Survey ----------
+
+    async function runSurvey() {
+      surveying = true;
+      setStage('list');
+      setActions({ review: true });
+      refreshTotals();
+      elNote.hidden = true;
+      elStatus.textContent = 'Looking…';
+      elList.textContent = '';
+      rows.clear();
+
+      if (unsubscribe) unsubscribe();
+      unsubscribe = api.cleaner.onProgress((p) => {
+        if (!p) return;
+        if (p.phase === 'start') {
+          renderPending(p.pending);
+          renderUnavailable(p.unavailable);
+          elStatus.textContent = `Measuring ${p.total} places…`;
+        } else if (p.phase === 'target') {
+          settleRow(p.target);
+          elStatus.textContent = `Measuring ${p.done} of ${p.total}…`;
+        }
+      });
+
+      const result = await api.cleaner.survey();
+
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      surveying = false;
+
+      if (!result || !result.ok) {
+        showError(result);
+        return;
+      }
+
+      elStatus.textContent =
+        result.totals.count === 0
+          ? 'Nothing to remove'
+          : `${items(result.totals.count)} in ${result.totals.present} ` +
+            `place${result.totals.present === 1 ? '' : 's'}, ${formatBytes(result.totals.bytes)}`;
+
+      if (result.totals.absent > 0) {
+        elNote.hidden = false;
+        elNote.textContent =
+          `${result.totals.absent} of the ${result.targets.length} places DiskWatch knows about ` +
+          'are not on this machine or have nothing in them. They stay listed so the list reads ' +
+          'the same everywhere.';
+      }
+
+      setActions({ review: true, again: true });
+      refreshTotals();
+    }
+
+    // ---------- Confirm ----------
+
+    function showConfirm() {
+      const chosen = selection();
+      if (chosen.length === 0) return;
+
+      const list = el('confirm-list');
+      list.textContent = '';
+
+      for (const row of chosen) {
+        const li = document.createElement('li');
+        li.className = 'confirm__row';
+
+        const name = document.createElement('span');
+        name.textContent = row.entry.label;
+        li.appendChild(name);
+
+        const figures = document.createElement('span');
+        figures.className = 'confirm__figures';
+
+        const size = document.createElement('span');
+        size.className = 'confirm__size';
+        size.textContent = formatBytes(row.report.bytes);
+        figures.appendChild(size);
+
+        const n = document.createElement('span');
+        n.className = 'confirm__count';
+        n.textContent = items(row.report.count);
+        figures.appendChild(n);
+
+        li.appendChild(figures);
+        list.appendChild(li);
+      }
+
+      const bytes = chosen.reduce((a, r) => a + r.report.bytes, 0);
+      const n = chosen.reduce((a, r) => a + r.report.count, 0);
+      el('confirm-total').textContent =
+        `${items(n)} from ${chosen.length} place${chosen.length === 1 ? '' : 's'}, ` +
+        `freeing about ${formatBytes(bytes)}.`;
+
+      setStage('confirm');
+      setActions({ back: true, confirm: true });
+    }
+
+    // ---------- Remove ----------
+
+    async function runRemove() {
+      const chosen = selection();
+      if (chosen.length === 0) return;
+
+      // Tokens only. Nothing else crosses, and there is nothing else to send.
+      const tokens = chosen.reduce((a, r) => a.concat(r.report.tokens), []);
+
+      buttons.confirm.disabled = true;
+      buttons.back.disabled = true;
+      elStatus.textContent = 'Moving to the Trash…';
+
+      const result = await api.cleaner.remove(tokens);
+      showResult(result);
+    }
+
+    function showResult(result) {
+      setStage('result');
+      setActions({ again: true });
+      elSelected.hidden = true;
+
+      if (!result || !result.ok) {
+        el('result-title').textContent = 'That could not be completed.';
+        el('result-where').textContent =
+          result && result.detail ? result.detail : 'The removal did not run.';
+        el('result-skipped-wrap').hidden = true;
+        elStatus.textContent = 'Not completed';
+        return;
+      }
+
+      const moved = result.totals.trashedCount;
+      const freed = formatBytes(result.totals.trashedBytes);
+
+      // The button said "Move to Trash"; this says "Moved". Same word back, so
+      // there is no doubt that the thing named is the thing that happened.
+      el('result-title').textContent =
+        moved === 0 ? 'Nothing was moved.' : `Moved ${items(moved)} to the Trash — ${freed}.`;
+      el('result-where').textContent = moved === 0 ? '' : trashLine(moved);
+      elStatus.textContent = moved === 0 ? 'Nothing moved' : `${items(moved)} moved, ${freed}`;
+
+      const skipped = result.skipped || [];
+      el('result-skipped-wrap').hidden = skipped.length === 0;
+
+      if (skipped.length > 0) {
+        // Deliberately not phrased as failure. An item held open by a running
+        // program is the ordinary case, and it is still there afterwards.
+        el('result-skipped-lead').textContent =
+          `${count(skipped.length)} ${skipped.length === 1 ? 'item was' : 'items were'} left ` +
+          'alone. Each is still where it was — nothing was half-removed.';
+
+        const list = el('result-skipped');
+        list.textContent = '';
+        for (const s of skipped) {
+          const li = document.createElement('li');
+          li.className = 'skiplist__row';
+
+          const reason = document.createElement('span');
+          reason.className = 'skiplist__reason';
+          reason.textContent = reasonText(s);
+          li.appendChild(reason);
+
+          // The path is displayed only, straight from the result, never held
+          // and never sent back.
+          if (s.path) {
+            const pathEl = document.createElement('span');
+            pathEl.className = 'skiplist__path mono';
+            pathEl.textContent = s.path;
+            li.appendChild(pathEl);
+          }
+
+          list.appendChild(li);
+        }
+      }
+    }
+
+    // One sentence per refusal reason, in the person's terms. The closed set in
+    // remove.js is what makes this a lookup rather than prose-parsing.
+    const REASON_TEXT = {
+      'unknown-token': 'This was no longer part of the current list.',
+      'token-already-used': 'This had already been removed.',
+      'target-not-in-allowlist': 'This place is no longer on the cleanup list.',
+      'not-in-live-survey': 'This changed since it was measured, so it was left alone.',
+      'identity-changed': 'This changed on disk since it was measured, so it was left alone.',
+      'is-symlink': 'This turned out to be a shortcut to somewhere else, so it was left alone.',
+      'escapes-target-root': 'This pointed outside the folder it belongs to, so it was left alone.',
+      'under-exclusion': 'This is on the protected list and is never removed.',
+      'contains-exclusion': 'This holds something on the protected list, so it was left alone.',
+      'app-running': 'The app that owns this is still open.',
+      'app-check-failed': 'Whether the app that owns this is open could not be determined.',
+      'trash-failed': 'This could not be moved to the Trash.',
+      vanished: 'This was already gone.',
+    };
+
+    function reasonText(skip) {
+      const base = REASON_TEXT[skip.reason] || 'This was left alone.';
+      return skip.reason === 'app-running' && skip.detail ? `${base} ${skip.detail}.` : base;
+    }
+
+    function showError(result) {
+      setStage('error');
+      setActions({ again: true });
+      elSelected.hidden = true;
+      elStatus.textContent = 'Could not be read';
+      el('clean-error-title').textContent = 'The cleanup list could not be read.';
+      el('clean-error-body').textContent =
+        (result && result.detail ? result.detail : 'The list of places to clean did not load.') +
+        ' Nothing was touched.';
+    }
+
+    function showEmpty() {
+      setReassurance();
+      setStage('empty');
+      setActions({ survey: true });
+      elSelected.hidden = true;
+      elStatus.textContent = 'Nothing surveyed yet';
+    }
+
+    // ---------- Wiring ----------
+
+    if (buttons.survey) buttons.survey.addEventListener('click', runSurvey);
+    if (buttons.again) buttons.again.addEventListener('click', runSurvey);
+    if (buttons.review) buttons.review.addEventListener('click', showConfirm);
+    if (buttons.confirm) buttons.confirm.addEventListener('click', runRemove);
+    if (buttons.back) {
+      buttons.back.addEventListener('click', () => {
+        setStage('list');
+        setActions({ review: true, again: true });
+        refreshTotals();
+      });
+    }
+
+    return { showEmpty, setReassurance };
+  })();
+
   // ---------- Start ----------
   if (!api) {
     setStage('empty');
@@ -703,7 +1279,11 @@
     if (surface === 'vibrancy' || surface === 'mica' || surface === 'acrylic') {
       document.documentElement.dataset.surface = surface;
     }
+    // isMac is only known now, and the Clean header was drawn before this
+    // resolved. Say Trash or Recycle Bin once the platform is actually known.
+    clean.setReassurance();
   });
 
   showEmpty();
+  clean.showEmpty();
 })();

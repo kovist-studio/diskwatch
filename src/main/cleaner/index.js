@@ -3,7 +3,7 @@
 // The targets loader. READ-ONLY: it resolves what is on disk and reports what
 // cleanup *would* remove. Nothing in this file deletes, moves, or writes.
 //
-// targets.json carries contracts — the trash exception, the expand
+// targets.json carries contracts — the trash-only rule, the expand
 // requirement, the exclusions — that are inert as long as they are only read
 // by people. This module is what keeps them. Every rule below fails LOUDLY on
 // load, because a cleanup allowlist that silently degrades is worse than no
@@ -15,20 +15,17 @@ const os = require('node:os');
 
 const TARGETS_FILE = path.join(__dirname, 'targets.json');
 
-// The two ids CLAUDE.md permits to delete permanently, verbatim and closed.
-// This is not configuration. A third id here is a change to the app's only
-// irreversible operation and must be argued for in CLAUDE.md first.
-const EMPTY_TRASH_IDS = Object.freeze(['macos-trash', 'windows-recycle-bin']);
-
-const CONFIRM_FIELDS = Object.freeze([
-  'style',
-  'mustState',
-  'mustContainWord',
-  'separateCodePath',
-  'excludeFromSelectAll',
-]);
-const CONFIRM_MUST_STATE = Object.freeze(['itemCount', 'totalSize']);
-const CONFIRM_WORD = 'permanently';
+// Nothing in this app deletes permanently. "trash" is the only method there
+// is, and absent means the same thing.
+//
+// `emptyTrash` was a real value for exactly one phase: the Trash and the
+// Recycle Bin were carved out of the rule, and then the carve-out was removed
+// because reading ~/.Trash needs Full Disk Access and the app asks for no
+// permission anywhere else. The name is kept here, and nowhere else, so that
+// re-proposing it fails loudly with the reason attached rather than falling
+// through the generic "unknown method" branch. The permitted count is ZERO.
+const METHOD = 'trash';
+const FORBIDDEN_METHOD = 'emptyTrash';
 
 const REQUIRED_FIELDS = Object.freeze([
   'id',
@@ -93,20 +90,21 @@ function validate(doc, options = {}) {
       problems.push(`${id}: defaultEnabled must be false — no target may ship pre-selected`);
     }
 
-    // RULE: the trash exception is closed.
-    if (t.method !== undefined && t.method !== 'trash' && t.method !== 'emptyTrash') {
-      problems.push(`${id}: method must be "trash" or "emptyTrash", got "${t.method}"`);
+    // RULE: there is no permanent deletion, for any id, under any condition.
+    if (t.method === FORBIDDEN_METHOD) {
+      problems.push(
+        `${id}: method "${FORBIDDEN_METHOD}" no longer exists. Permanent deletion was carved out ` +
+          'of the trash-only rule for one phase and the carve-out was removed; the rule is absolute ' +
+          'again. See the ~/.Trash entry in the excluded list before proposing this a second time.',
+      );
+    } else if (t.method !== undefined && t.method !== METHOD) {
+      problems.push(`${id}: method must be "${METHOD}" or absent, got "${t.method}"`);
     }
-    if (t.method === 'emptyTrash') {
-      if (!EMPTY_TRASH_IDS.includes(id)) {
-        problems.push(
-          `${id}: method "emptyTrash" is permitted only for ${EMPTY_TRASH_IDS.join(' and ')}. ` +
-            'Permanent deletion is the app\'s single documented exception and this id is not in it.',
-        );
-      }
-      problems.push(...validateConfirm(id, t.confirm));
-    } else if (t.confirm !== undefined) {
-      problems.push(`${id}: carries a confirm contract but does not delete permanently`);
+    if (t.confirm !== undefined) {
+      problems.push(
+        `${id}: carries a confirm contract. Those described the confirmation for an irreversible ` +
+          'delete, and nothing in this app deletes irreversibly any more.',
+      );
     }
 
     problems.push(...validateExclusions(id, t));
@@ -135,41 +133,8 @@ function validate(doc, options = {}) {
     kept.push(t);
   }
 
-  // RULE: exactly two, counted across the whole file.
-  const permanent = doc.targets.filter((t) => t && t.method === 'emptyTrash').map((t) => t.id);
-  if (permanent.length !== EMPTY_TRASH_IDS.length) {
-    problems.push(
-      `expected exactly ${EMPTY_TRASH_IDS.length} entries with method "emptyTrash", found ` +
-        `${permanent.length}${permanent.length ? ` (${permanent.join(', ')})` : ''}`,
-    );
-  }
-
   if (problems.length > 0) throw new TargetsError(problems);
   return { targets: kept, omitted };
-}
-
-function validateConfirm(id, confirm) {
-  const problems = [];
-  if (!confirm || typeof confirm !== 'object') {
-    return [`${id}: deletes permanently but carries no confirm contract`];
-  }
-  for (const field of CONFIRM_FIELDS) {
-    if (!(field in confirm)) problems.push(`${id}: confirm is missing "${field}"`);
-  }
-  const stated = Array.isArray(confirm.mustState) ? confirm.mustState : [];
-  for (const field of CONFIRM_MUST_STATE) {
-    if (!stated.includes(field)) problems.push(`${id}: confirm.mustState must include "${field}"`);
-  }
-  if (confirm.mustContainWord !== CONFIRM_WORD) {
-    problems.push(`${id}: confirm.mustContainWord must be "${CONFIRM_WORD}"`);
-  }
-  if (confirm.separateCodePath !== true) {
-    problems.push(`${id}: confirm.separateCodePath must be true — permanent deletion may not share a code path with trash`);
-  }
-  if (confirm.excludeFromSelectAll !== true) {
-    problems.push(`${id}: confirm.excludeFromSelectAll must be true`);
-  }
-  return problems;
 }
 
 // A stale exclusion is the dangerous kind of wrong: it looks like protection
@@ -305,11 +270,20 @@ async function exists(p) {
 // age-filtered target would overstate the saving by whatever share of it is
 // too recent to touch -- on the machine this was written against, that was
 // 10.65 GB claimed against a single eligible file.
+//
+// collect:true additionally records each ELIGIBLE file as
+// { path, size, dev, ino, mtimeMs }. remove.js needs the individual paths for
+// age-filtered targets, and it must get them from this walk rather than its
+// own: a second walker that disagreed with this one about symlinks, mount
+// points, exclusions or age would be a hole in the allowlist that no test
+// comparing the two would necessarily catch. Only age-filtered targets ask for
+// it, so the list stays bounded by what is actually removable.
 async function measure(root, options = {}) {
   const excluded = (options.exclude || []).filter(Boolean);
   const minAgeDays = Number.isFinite(options.minAgeDays) ? options.minAgeDays : null;
   const now = options.now || Date.now();
   const cutoff = minAgeDays === null ? null : now - minAgeDays * 86400000;
+  const collect = options.collect === true;
   const result = {
     bytes: 0,
     files: 0,
@@ -321,6 +295,7 @@ async function measure(root, options = {}) {
     tooRecent: 0,
     excludedHits: new Set(),
   };
+  if (collect) result.items = [];
 
   let rootStat;
   try {
@@ -339,6 +314,7 @@ async function measure(root, options = {}) {
     if (eligible(rootStat, cutoff)) {
       result.bytes = rootStat.size;
       result.files = 1;
+      if (collect) result.items.push(record(root, rootStat, rootStat.size));
     } else {
       result.tooRecent++;
     }
@@ -400,6 +376,10 @@ async function measure(root, options = {}) {
         if (eligible(st, cutoff)) {
           result.bytes += size;
           result.files++;
+          // The recorded size is the file's own, not the deduplicated `size`:
+          // a hardlink counted as 0 bytes for the total is still a real file
+          // that would be removed.
+          if (collect) result.items.push(record(child, st, st.size));
         } else {
           result.tooRecent++;
         }
@@ -409,6 +389,13 @@ async function measure(root, options = {}) {
   }
 
   return result;
+}
+
+// Enough to recognise this exact file again later. A path can be swapped for a
+// different object between the survey and the removal; dev+ino is what tells
+// the two apart, and the path string alone never could.
+function record(p, st, size) {
+  return { path: p, size, dev: st.dev, ino: st.ino, mtimeMs: st.mtimeMs };
 }
 
 // The later of modification and last-access time, per the rule recorded on the
@@ -464,7 +451,6 @@ async function survey(options = {}) {
       symlinksSkipped: 0,
       unreadable: 0,
       tooRecent: 0,
-      permanent: t.method === 'emptyTrash',
       minAgeDays: t.minAgeDays,
       requiresAppClosed: t.requiresAppClosed,
       staleExclusions: [],
@@ -523,6 +509,6 @@ module.exports = {
   eligible,
   TargetsError,
   TARGETS_FILE,
-  EMPTY_TRASH_IDS,
+  FORBIDDEN_METHOD,
   EXPAND_HANDLERS,
 };

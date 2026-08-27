@@ -3,6 +3,392 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## V3 — The renderer is never told a path (2026-08-27)
+
+**Decision:** a survey tells the renderer what it needs to draw a list — label,
+description, size, item count, risk, and an opaque token per item — and nothing
+else. No path crosses. The measured property, taken by driving the real IPC
+handler against this machine's disk:
+
+```
+8 targets, 1,208 items, 20.5 GB surveyed
+survey payload contains a user path: false
+```
+
+**This is stronger than "the UI does not display paths".** That would be a
+convention, kept by whoever writes the next view. This is a property of the
+data: the renderer cannot name a place on disk because it was never told one.
+`remove()` accepts tokens and has no overload taking a path or a target id, and
+the IPC boundary rejects anything that is not a v4 UUID before it reaches a
+module that would have to reason about what it is — `/etc/passwd` is refused as
+a *shape* error, not resolved and then denied.
+
+The two ends reinforce each other. Tokens exist so provenance cannot be forged;
+because tokens carry provenance, the payload does not need paths to be useful;
+because the payload has no paths, a compromised renderer has nothing to leak
+and nothing to name. Each property makes the next one cheap.
+
+Paths appear in exactly one place: the *result* of a removal, where the skipped
+list says which item was left alone and why. That is after the fact, about work
+the person just asked for, and it is rendered with `textContent` and never held.
+
+**The one deliberate exception, and why it is not a hole.** Per-file targets get
+a disclosure that lists **basenames and dates** — never paths — on explicit
+request, through its own channel. A filename is what someone recognises their
+own file by; the directory above it tells them nothing they do not know and is
+the part worth not sending. The survey property is unchanged: the survey still
+carries nothing. This is a separate, user-initiated act.
+
+It reads the ledger the survey already filled rather than walking again. That is
+1ms instead of seconds, but the real reason is correctness: a fresh walk could
+return a different set from the one the tokens were minted for, and then the
+list a person read would not be the list they agreed to.
+
+## V3 — Downloads are not a cache, so one checkbox was wrong (2026-08-27)
+
+**Decision:** a target whose items are individual files the person chose to put
+there cannot be ticked until its list has been opened and looked at. The
+checkbox ships disabled; opening the disclosure is what enables it.
+
+**What made this visible was a number, not a review.** The first real survey of
+this machine returned `downloads-old-macos` as **1,040 items, 8.2 GB** — behind
+a single checkbox, in a row that looked exactly like the seven cache rows above
+it. Every other row in the list is regenerable: the app that made those files
+makes them again, and the cost of being wrong is a slower launch. Downloads are
+the opposite. Nothing re-downloads them for you, and the row said so in its own
+description while still offering the same one-click affordance as a cache.
+
+That is the same argument that gave `ios-backups` an `expand` contract, only
+with a different safety net. iOS backups are irreplaceable and have none, so
+that entry does not ship at all until per-device selection exists
+(`ifUnsupported: omit`). Downloads go to the Trash and can be dragged back out,
+so the proportionate answer is a gate rather than a withdrawal — but "recoverable"
+is not "reversible without noticing", and 1,040 files is well past the point
+where a person can hold what they just agreed to in their head.
+
+**The rule keys off the unit, not the id.** A target is gated when its items are
+individual files (`unit === 'file'`, which is what a `minAgeDays` entry produces)
+rather than one rebuildable directory. Nobody has to remember to add the next
+Downloads-shaped target to a list — the shape carries the rule. Verified both
+ways on this machine: `downloads-old-macos` gates, `pip-cache-macos` does not.
+
+**What is deliberately NOT claimed.** This is the minimum, not the end state.
+Per-file selection is still the right answer for files someone chose to keep,
+and the data is already shaped for it: every disclosure row carries its own
+token, so adding a checkbox per file needs no new channel and no new IPC
+contract. What is shipped is the gate; the argument for going further is
+recorded here so the next person does not have to rediscover it.
+
+## V3 — What the app writes about you, and the rule that keeps it that way (2026-08-27)
+
+**Decision:** in a production build, nothing containing a **user path** may be
+written to disk or to stdout. A user path is one under the user's home
+directory or one the user selected — a scan root, a survey result, a cleanup
+item. System binaries and OS locations (`/usr/sbin/spctl`, `C:\Windows\System32`)
+stay loggable, because they identify the machine's software, not its owner. The
+`--dev` flag is the only exception, hung on the `isDev` gate that already exists
+at `src/main/index.js:9` rather than on a new mechanism.
+
+**This is belt-and-braces, not a leak being closed.** The inventory was taken
+before the rule was written, and it came back clean. `src/` contains exactly
+five `console.*` calls: four in `src/main/security/cli.js`, which is the
+`npm run audit` dev CLI and never ships, and one in `src/main/ipc.js` that logs
+`formatAudit(audit)` from the main process. Running the audit confirms its
+output is prose about FileVault, SIP, Gatekeeper, the firewall and SMART, with
+no home directory and no volume paths in it. That line is also unreachable
+today: nothing in the renderer calls `security.audit()` yet. `crashReporter`
+appears nowhere in the repo, and there is no `Crashpad/` directory and no
+DiagnosticReports entry to show otherwise. Nothing in `src/` calls `getPath`,
+`writeFile`, `mkdir`, or `createWriteStream` at all.
+
+What Chromium writes on its own is a longer list — 18 entries under
+`~/Library/Application Support/DiskWatch/`, none of them ours: `Cache`,
+`Code Cache`, `GPUCache`, `Local Storage`, `Session Storage`, `Preferences`,
+`DIPS`, `Trust Tokens` and the rest. The question worth asking of that tree is
+not what it is but what is in it, so: `grep -rl` for the home directory across
+all of it returns four files, and all four are leveldb's own `LOG`, recording
+the path of the leveldb directory itself. No scanned path is persisted
+anywhere. `Local Storage` holds only `devtools://devtools` keys left by
+`--dev` runs.
+
+So the rule costs nothing today. That is the argument for adopting it now
+rather than later: a policy written while the code already complies is a
+description, and one written after a violation is a negotiation.
+
+**The premise this started from was mine to test, and it was wrong.** The
+audit was requested on the stated understanding that on macOS a main-process
+`stdout` lands in the unified log — which would have made `ipc.js` an active
+disclosure rather than a latent one. That understanding was the user's, and
+rather than accept or argue it, it got tested: a minimal `.app` bundle,
+launched through LaunchServices with `open` rather than from a terminal,
+writing a marker to `stdout`, a second marker to `stderr`, and a witness file
+to prove it ran. On this machine (Darwin 25.6.0) the witness file appeared and
+`log show` contained neither marker. Both streams were discarded.
+
+The rule is kept anyway, because it is still correct on Windows, still correct
+whenever anyone launches from a terminal, and cheap. But it is now justified as
+defence in depth instead of as plugging a hole, and that distinction is the
+whole reason this paragraph exists. A rule resting on a premise that does not
+hold is a rule that gets repealed the first time someone checks. Recording the
+failed premise alongside the surviving rule means the next reader re-derives
+the same conclusion instead of discovering the gap and assuming the rule was
+careless.
+
+**The failure shape is designed now, while nothing is broken.** The cost of the
+rule is diagnosing "the scan fails on *my* Downloads folder" without being told
+which folder. What recovers nearly all of it is reporting the *shape* of a
+failure rather than its name:
+
+```
+{ code, depth, index, targetId }
+```
+
+`code` is the errno or app code (`EACCES`, `ELOOP`, `ENOENT`). `depth` is
+directory levels below the scan root, root being 0. `index` is the ordinal of
+the entry within its directory as `readdir` returned it. `targetId` is the
+`targets.json` id, which is already public data in a shipped allowlist. None of
+the four is user data: three are structural facts about a walk and the fourth
+is a constant we wrote.
+
+Those four reconstruct a bug. "`EACCES` at depth 4, entry 312" is reproducible
+by anyone holding the same root, and the root is the one thing a person can
+always supply themselves in a bug report. That is the principle the shape
+encodes: **the user may volunteer a path; the app may never emit one on their
+behalf.** This is written down before the first bug report rather than after,
+because the moment a real user is stuck is exactly the moment "just log the
+path once, we will take it out later" wins the argument.
+
+**`deleteAppDataOnUninstall: false` is now a choice, not an inherited default.**
+It stays `false`, and the reason is the same rule that governs everything else
+here: nothing this product does is irreversible. An NSIS uninstaller deleting
+`%APPDATA%\DiskWatch` would be a permanent, unrecoverable directory removal —
+it does not go to the Recycle Bin — performed by the installer, where not one
+of `remove.js`'s gates applies and where the person is watching a progress bar
+rather than a confirmation. Shipping the app's only permanent delete inside its
+uninstaller would be an odd place to make an exception to a rule the app
+otherwise keeps absolutely.
+
+The cost is a few megabytes of Chromium cache left behind after an uninstall.
+That is accepted, and it is small precisely because the inventory above
+established there is nothing personal in that tree to leave behind. Had the
+grep come back differently, this decision would have gone the other way.
+
+**The `Application Support/Electron/` tree is the dev CLI, not us.** Running
+`npm run cleaner:remove` executes `electron tools/cleaner-remove.js`, which
+launches Electron pointed at a script rather than at an app directory, so it
+takes Electron's *default* app name and gets its own userData tree at
+`~/Library/Application Support/Electron/`. It is a byproduct of the harness and
+contains nothing of the app's. Deleting it is always safe. It is noted here
+because a tree with that name sitting next to `DiskWatch/` invites exactly one
+wrong conclusion — that the app writes somewhere it does not — and this record
+is cheaper than the investigation.
+
+Related, and harmless: on macOS `DiskWatch/` and `diskwatch/` under Application
+Support are the same directory (one inode, case-insensitive APFS), not two.
+
+## V3 — The first code that writes proves its input rather than trusting it (2026-08-26)
+
+**Decision:** `src/main/cleaner/remove.js` is the only code in DiskWatch that
+deletes. It calls Electron's `shell.trashItem` — not the `trash` npm package —
+and it takes opaque single-use tokens, never paths. Eight gates re-prove each
+token against the live filesystem immediately before anything is trashed.
+
+**`npm install trash` was not one dependency.** `trash@10.1.1` pulls **66
+transitive packages** into a project that currently has exactly one
+(`d3-hierarchy`), is pure ESM in a CommonJS codebase, and bundles two native
+binaries — a 726 KB Mach-O and a PE32+ `.exe` — that would each need
+`asarUnpack` and, eventually, signing. Electron 43 already ships
+`shell.trashItem(path)`, which does the same job on both platforms. Taking it
+means `package.json` and `electron-builder.yml` are not touched at all.
+
+It also glob-expands its input by default: `trash(['report[1].pdf'])` does not
+mean what it reads like, and a file named `!invoice.zip` becomes a *negation*.
+That is a live hazard for a tool pointed at a user's Downloads folder, and it
+would have needed `{glob: false}` on every call site forever.
+
+**The bug this module was really written to prevent.** `measure()` applies a
+target's `exclude` list to the children it walks. It does not apply it to the
+**roots**. Checked against this machine, 2026-08-27:
+
+```
+macos-user-caches: ~/Library/Caches/*  →  168 glob roots
+3 of them ARE the exclusions: Homebrew, pip, JetBrains
+```
+
+The root count is a snapshot, not a constant: it is however many directories
+`~/Library/Caches` happens to hold, so it moves with whatever is installed and
+will not reproduce exactly. The number that is stable is the **3** — those come
+from the target's own `exclude` list, not from the disk.
+
+Because exclusions are applied inside the walk, those three measure as **0
+bytes** — they look inert in a survey. But they are still returned as roots, so
+the obvious implementation of "trash each root" would have moved
+`~/Library/Caches/JetBrains` to the Trash, taking LocalHistory with it: the
+uncommitted edit history that the entire V3 allowlist exists to protect. The
+exclusion that was correct for *measuring* was silently wrong for *removing*.
+An item is now refused if it sits under an exclusion **or contains one**, and
+both halves have a test.
+
+**Provenance is a token, not a path.** The requirement was that removal accept
+only paths that came from a survey in this session. Tokens are strictly
+stronger: a path string can be forged by anything that reaches the IPC boundary,
+a `randomUUID` in a process-local ledger cannot. There is deliberately no
+overload accepting a path or a target id — a path re-derived from an id is
+exactly the "trust me, this is where that lives" move the rule forbids.
+
+But a token is only a receipt for something seen *earlier*, which is why holding
+one proves nothing on its own. Before any trash call the entry is re-checked
+against a re-read and re-validated `targets.json`, a fresh enumeration of its
+target, `dev`/`ino` identity, symlink status, and `realpath` containment on both
+the item and its root. The root check is the non-obvious one: swapping a cache
+directory for a symlink between plan and remove defeats a per-item check
+completely, and there is a test that does exactly that.
+
+**Unanswerable checks refuse.** If `ps`/`tasklist` fails, times out, returns
+nothing, or names an app the mapping table has never heard of, the app is
+treated as *running* and the item is skipped. This is the same stance the
+Windows audit takes with `PermissionDenied` → `unknown`: a check that could not
+be run is not a pass. Failing the other way would let a cleanup proceed while
+Chrome holds its cache open.
+
+**Per-item failure is the normal case, not an exception.** Removal is
+sequential, never `Promise.all` — one rejection must not abandon the rest of the
+list — and a failed item is recorded and stepped over. Never forced, never
+retried. A locked file on Windows is locked for a reason, and an installer
+mid-run keeps its working state in precisely the directories this app offers to
+clean.
+
+**Rule 1 is now enforced instead of described.** A test walks every `.js` file
+under `src/`, strips comment lines, and fails on `fs.unlink`, `fs.rm`,
+`fs.rmdir` or their `*Sync` forms. This is the same principle as the loader
+validating `targets.json` and the `expand` contract replacing a `note`: a
+requirement that cannot be made to fail is not a requirement. Verified by
+inserting an `fsp.rm` call and watching the suite go red.
+
+**The TOCTOU window is accepted, not overlooked.** Every gate resolves a path,
+and then `shell.trashItem` resolves it again itself. Between those two
+resolutions the filesystem can change, and nothing in this API can make the
+check and the move one atomic operation — `trashItem` takes a path, not a file
+descriptor, so there is no handle to hold across the gap and no
+`*at()`-style call to reach for.
+
+What the gates do is make the window small and the approach expensive: the
+`lstat`, the `realpath` on both item and root, and the identity comparison all
+happen immediately before the call, so the gap is microseconds rather than the
+minutes between a survey and a click. Winning it requires an attacker who
+already has write access to the user's own cache directory — that is, code
+already running as the user, which could simply delete the files itself and
+skip the race entirely. The exposure the race adds over that baseline is
+approximately nothing.
+
+It is written down here because "we checked and it is fine" and "we never
+thought about it" produce identical-looking code, and the next person to read
+`screen()` deserves to know which one this is. If `trashItem` ever grows a
+descriptor-based form, this is the reason to adopt it.
+
+**What the tests do not cover, and what does.** `shell.trashItem` is never
+executed by `npm test`: the suite runs under plain `node --test` with no
+Electron, and the trasher is injected. All 27 tests exercise the gates and none
+exercise the real move to the Trash.
+
+`tools/cleaner-remove.js` exists to close exactly that gap before any UI does.
+It runs the real module under a real Electron process against a real disk —
+`--dry-run` by default, `--confirm` to actually trash — and it is the only way
+the production path gets executed at all right now. It is a dev harness, not a
+feature: electron-builder's `files` list is an allowlist naming `src/` and
+`package.json`, so `tools/` is excluded structurally, and tests assert both
+that nothing under `src/` references it and that the allowlist stays an
+allowlist.
+
+The first real run confirmed the design against hardware rather than fixtures.
+As of 2026-08-27, `~/Library/Caches/*` produced 168 roots, of which **165 were
+offered and 3 were refused** — Homebrew, pip, and JetBrains, each
+`under-exclusion`. Only that last figure is worth holding onto: the roots and
+the offered count are a snapshot of one machine on one day and drift as
+software is installed and removed, whereas the 3 refusals are fixed by the
+target's `exclude` list and reproduce on any machine where those caches exist.
+The JetBrains refusal is the one that matters, and it is now something that has
+actually happened rather than something a test asserts about a temp directory.
+
+**The recoverability premise is observed, not assumed.** Rule 1 rests on a claim
+that, until now, had never actually been executed: that everything this app
+removes can be put back. On 2026-08-27 the harness ran `--confirm` against
+`pip-cache-macos` and moved `~/Library/Caches/pip` — one item, the whole
+directory, 157,431,205 bytes — to the Trash through the real
+`shell.trashItem`. 1 moved, 0 skipped, exit 0. Finder's Put Back then restored
+it to its original path with all four entries intact (`http`, `http-v2`,
+`selfcheck`, `wheels`) and the directory mtime unchanged, and `~/.Trash/pip`
+was gone afterwards — Put Back moved it back rather than copying it. The full
+trash-and-restore loop, on real hardware, end to end.
+
+This is worth recording because the automated suite structurally cannot reach
+it. Every test injects a fake trasher, so `npm test` proves the gates and never
+once proves the premise the gates exist to protect. A green suite is not
+evidence that anything is recoverable; it is evidence that nothing got as far
+as the delete call. Only a real removal on a real disk produces that evidence,
+and until there is a UI, `tools/cleaner-remove.js` is the only thing that
+performs one.
+
+## V3 — The permanent-deletion exception lasted one phase (2026-08-26)
+
+**Decision:** `~/.Trash` and `C:\$Recycle.Bin` are dropped. DiskWatch has no
+permanent deletion at all, and rule 1 — deletions go through the `trash`
+package, and nothing else — is absolute again with no carve-out. Both paths
+move to `excluded` with the reasoning, because an entry that is merely absent
+gets re-proposed.
+
+**The exception was written carefully, and that was not the problem.** It named
+exactly two ids and forbade a third. It required a separate function, so that
+no boolean parameter anywhere could select permanence. It required a
+confirmation stating the item count and the total size and containing the word
+"permanently". It was off by default and unreachable from a select-all. The
+loader enforced every clause and the tests proved each one could fail. Every
+condition was about making permanent deletion safe *once you have decided to
+have it*. Not one of them asked what having it costs everywhere else.
+
+**What removed it was a permission, not a bug.** Reading `~/.Trash` on macOS
+needs Full Disk Access — including reading it merely to count the items and
+total the bytes that the confirmation was required to display. This app asks
+for no permission anywhere else, on purpose and consistently: the security
+audit's whole design is that a check which cannot see an answer reports
+`unknown` rather than prompting or elevating, and `C:\Windows\Temp` and
+`SoftwareDistribution\Download` were excluded rather than build an elevation
+story for two cache folders.
+
+So the product would have had exactly one permission prompt, and it would have
+been attached to the single irreversible operation in it. The most dangerous
+thing in the app asks for the broadest access the OS can grant, in order to do
+something the OS already does: Empty Trash is in Finder and in the Dock's
+context menu, where people already know to look for it. That trade is backwards
+in every direction, and none of it was visible while the entry was still a
+block of JSON. It became visible when the entry had to be resolved and measured
+against a real disk.
+
+**The Recycle Bin went too, though it cost nothing on its own.** No Windows
+permission stands in the way of `SHEmptyRecycleBin`. It went because it existed
+only as the Windows half of one exception, and keeping it means keeping the
+exception. A rule with one carve-out in it is not the same rule as one without:
+the next proposal argues about which side of the line it falls on instead of
+being told there is no line to cross. The cost of the general rule is that it
+sometimes forbids a specific thing that would have been fine.
+
+**The inversion is the load-bearing part.** The loader's rule used to be
+"exactly two entries may carry `emptyTrash`" — a check that would have *failed*
+if the count ever dropped to zero. It now reads: zero entries may carry it, and
+a first one is a hard error. `emptyTrash` survives in exactly one place,
+`FORBIDDEN_METHOD` in the loader, so that re-proposing it fails loudly with the
+reason attached rather than falling through the generic unknown-method branch.
+That is the same move as the `excluded` list: the record of having decided,
+kept where the next person will trip over it.
+
+**The general lesson is about the order of the argument.** The carve-out was
+reasoned into CLAUDE.md before the hardware fact was in hand, and it was
+reasoned from the inside — conditions on the exception, not conditions on
+whether to have one. The cheapest version of this decision would have been to
+cost the permission first: what does the *rest* of the product have to give up
+to make this one entry possible? That question does not need real hardware to
+ask, only to answer.
+
 ## V3 — The allowlist is the design, and here is what it caught (2026-08-25)
 
 **Decision:** cleanup only ever touches paths written down in

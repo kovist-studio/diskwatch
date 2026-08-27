@@ -212,14 +212,90 @@
           data-view="clean"
           hidden
         >
-          <div class="empty">
-            <p class="microlabel">Clean</p>
-            <h2 class="empty__title">Reclaim space, safely.</h2>
-            <p class="empty__body">
-              This is where you’ll review caches and leftovers that are safe to remove. Nothing is
-              deleted outright — items go to the Trash. Coming in a later version.
-            </p>
+          <header class="view__head">
+            <p class="microlabel" id="clean-status">Nothing surveyed yet</p>
+            <!-- The most reassuring fact about this whole tab, kept on screen at
+                 every stage rather than saved for the confirmation. -->
+            <p class="reassure" id="clean-reassure"></p>
+          </header>
+
+          <!-- Empty: what this looks at, and the one thing you can do next. -->
+          <div class="stage" id="clean-stage-empty">
+            <div class="empty">
+              <h2 class="empty__title">Reclaim space, safely.</h2>
+              <p class="empty__body">
+                DiskWatch looks in a fixed list of places where apps leave working files
+                behind — caches, downloaded packages, build leftovers. It reads that list
+                and nowhere else.
+              </p>
+              <p class="empty__hint microlabel">Look for what’s safe to remove</p>
+            </div>
           </div>
+
+          <!-- The list. Rows arrive as each target is measured, so this stage is
+               both “surveying” and “ready” — there is no separate waiting screen. -->
+          <div class="stage" id="clean-stage-list" hidden>
+            <div class="targets" id="clean-targets" role="group" aria-label="Places to clean"></div>
+            <p class="note" id="clean-note" hidden></p>
+          </div>
+
+          <!-- Confirm: names every selected target, its size and its count. -->
+          <div class="stage" id="clean-stage-confirm" hidden>
+            <div class="confirm">
+              <h2 class="empty__title">Move these to the Trash?</h2>
+              <ul class="confirm__list" id="confirm-list"></ul>
+              <p class="confirm__total" id="confirm-total"></p>
+              <p class="empty__body">
+                These move to the Trash. Nothing is deleted permanently — you can put any
+                of it back from the Trash afterwards.
+              </p>
+            </div>
+          </div>
+
+          <!-- Result: what moved, what did not, and where it all is now. -->
+          <div class="stage" id="clean-stage-result" hidden>
+            <div class="result">
+              <h2 class="empty__title" id="result-title"></h2>
+              <p class="empty__body" id="result-where"></p>
+              <div class="result__section" id="result-skipped-wrap" hidden>
+                <p class="microlabel">Skipped</p>
+                <p class="note" id="result-skipped-lead"></p>
+                <ul class="skiplist" id="result-skipped"></ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Error: the allowlist itself did not load. -->
+          <div class="stage" id="clean-stage-error" hidden>
+            <div class="empty">
+              <h2 class="empty__title" id="clean-error-title"></h2>
+              <p class="empty__body" id="clean-error-body"></p>
+            </div>
+          </div>
+
+          <footer class="view__foot">
+            <div class="summary" id="clean-selected" hidden>
+              <span class="summary__item">
+                <span class="microlabel">Selected</span>
+                <span class="summary__value mono" id="sel-count">0 items</span>
+              </span>
+              <span class="summary__item">
+                <span class="microlabel">Frees up</span>
+                <span class="summary__value mono" id="sel-size">0 B</span>
+              </span>
+            </div>
+            <div class="actions">
+              <button class="btn" id="clean-back" hidden>Back</button>
+              <button class="btn btn--primary" id="clean-survey">
+                Look for what’s safe to remove
+              </button>
+              <button class="btn btn--primary" id="clean-review" hidden disabled>
+                Review selection
+              </button>
+              <button class="btn btn--primary" id="clean-confirm" hidden>Move to Trash</button>
+              <button class="btn btn--primary" id="clean-again" hidden>Look again</button>
+            </div>
+          </footer>
         </section>
       </main>
     </div>

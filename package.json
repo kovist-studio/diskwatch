@@ -17,7 +17,8 @@
     "build:win": "electron-builder --win",
     "build:dir": "electron-builder --dir",
     "audit": "node src/main/security/cli.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "cleaner:remove": "electron tools/cleaner-remove.js"
   },
   "devDependencies": {
     "electron": "^43.4.1",

@@ -42,79 +42,83 @@ test('the real targets.json passes its own rules', () => {
   assert.equal(targets.some((t) => t.id === 'ios-backups'), false);
 });
 
-// --- The trash exception ----------------------------------------------------
+// --- Nothing deletes permanently --------------------------------------------
 
-test('permanent deletion is closed to exactly two ids', async (t) => {
-  await t.test('a third emptyTrash entry is a hard error', () => {
-    const doc = clone();
-    find(doc, 'windows-user-temp').method = 'emptyTrash';
-    rejects(doc, /permitted only for macos-trash and windows-recycle-bin/);
+// This rule used to read "exactly two". The Trash and the Recycle Bin were
+// carved out of it for one phase and then dropped, so the count is now zero
+// and the first entry to try is an error rather than the third.
+
+test('permanent deletion is closed to zero ids', async (t) => {
+  await t.test('the shipped file carries no emptyTrash entry and no confirm contract', () => {
+    assert.equal(REAL.targets.filter((x) => x.method === 'emptyTrash').length, 0);
+    assert.equal(REAL.targets.filter((x) => 'confirm' in x).length, 0);
   });
 
-  await t.test('the count is checked across the whole file', () => {
+  await t.test('a first emptyTrash entry is a hard error, on any id', () => {
+    for (const id of ['windows-user-temp', 'npm-cache', 'downloads-old-macos']) {
+      const doc = clone();
+      find(doc, id).method = 'emptyTrash';
+      rejects(doc, /method "emptyTrash" no longer exists/, `${id} must be rejected`);
+    }
+  });
+
+  await t.test('the rejection says where the reasoning is written down', () => {
     const doc = clone();
-    delete find(doc, 'macos-trash').method;
-    delete find(doc, 'macos-trash').confirm;
-    rejects(doc, /expected exactly 2 entries with method "emptyTrash", found 1/);
+    find(doc, 'npm-cache').method = 'emptyTrash';
+    rejects(doc, /excluded list/);
+  });
+
+  await t.test('re-adding the two ids does not re-open anything', () => {
+    const doc = clone();
+    doc.targets.push({
+      id: 'macos-trash',
+      label: 'Trash',
+      platform: 'darwin',
+      path: '~/.Trash',
+      description: 'Files you have already deleted.',
+      risk: 'caution',
+      defaultEnabled: false,
+      requiresAppClosed: [],
+      method: 'emptyTrash',
+    });
+    rejects(doc, /macos-trash: method "emptyTrash" no longer exists/);
   });
 
   await t.test('an unknown method is rejected outright', () => {
     const doc = clone();
     find(doc, 'npm-cache').method = 'shred';
-    rejects(doc, /method must be "trash" or "emptyTrash"/);
+    rejects(doc, /method must be "trash" or absent/);
   });
 
-  await t.test('the two permitted ids are still exactly the documented pair', () => {
-    assert.deepEqual([...cleaner.EMPTY_TRASH_IDS].sort(), ['macos-trash', 'windows-recycle-bin']);
+  await t.test('"trash", stated explicitly, is fine', () => {
+    const doc = clone();
+    find(doc, 'npm-cache').method = 'trash';
+    assert.doesNotThrow(() => cleaner.validate(doc));
+  });
+
+  await t.test('a confirm contract is rejected wherever it appears', () => {
+    const doc = clone();
+    find(doc, 'npm-cache').confirm = { style: 'permanent', mustContainWord: 'permanently' };
+    rejects(doc, /carries a confirm contract/);
   });
 });
 
-test('the confirm contract is mandatory and complete', async (t) => {
-  await t.test('missing entirely', () => {
-    const doc = clone();
-    delete find(doc, 'macos-trash').confirm;
-    rejects(doc, /deletes permanently but carries no confirm contract/);
-  });
+test('both bins are recorded as excluded, with the reasoning', async (t) => {
+  const reasonFor = (p) => (REAL.excluded.find((e) => e.path === p) || {}).reason;
 
-  await t.test('each required field is individually required', () => {
-    for (const field of ['style', 'mustState', 'mustContainWord', 'separateCodePath', 'excludeFromSelectAll']) {
-      const doc = clone();
-      delete find(doc, 'windows-recycle-bin').confirm[field];
-      rejects(doc, new RegExp(`confirm is missing "${field}"|confirm\\.${field}`), `${field} must be required`);
+  await t.test('neither is a target any more', () => {
+    for (const id of ['macos-trash', 'windows-recycle-bin']) {
+      assert.equal(REAL.targets.some((x) => x.id === id), false, `${id} must not be a target`);
     }
   });
 
-  await t.test('the item count and total size must both be stated', () => {
-    for (const field of ['itemCount', 'totalSize']) {
-      const doc = clone();
-      const c = find(doc, 'macos-trash').confirm;
-      c.mustState = c.mustState.filter((s) => s !== field);
-      rejects(doc, new RegExp(`mustState must include "${field}"`));
+  await t.test('each is in excluded, and says why', () => {
+    for (const p of ['~/.Trash', 'C:\\$Recycle.Bin']) {
+      assert.ok(reasonFor(p), `${p} must be listed in excluded`);
     }
-  });
-
-  await t.test('the word "permanently" cannot be softened', () => {
-    const doc = clone();
-    find(doc, 'macos-trash').confirm.mustContainWord = 'remove';
-    rejects(doc, /mustContainWord must be "permanently"/);
-  });
-
-  await t.test('sharing a code path with trash-based cleanup is a hard error', () => {
-    const doc = clone();
-    find(doc, 'macos-trash').confirm.separateCodePath = false;
-    rejects(doc, /may not share a code path with trash/);
-  });
-
-  await t.test('select-all may not reach it', () => {
-    const doc = clone();
-    find(doc, 'windows-recycle-bin').confirm.excludeFromSelectAll = false;
-    rejects(doc, /excludeFromSelectAll must be true/);
-  });
-
-  await t.test('a confirm contract on a non-permanent entry is also wrong', () => {
-    const doc = clone();
-    find(doc, 'npm-cache').confirm = { style: 'permanent' };
-    rejects(doc, /carries a confirm contract but does not delete permanently/);
+    // The permission cost is the reason ~/.Trash went, and it is the part
+    // someone re-proposing this needs to read.
+    assert.match(reasonFor('~/.Trash'), /Full Disk Access/);
   });
 });
 
@@ -471,7 +475,7 @@ test('survey reports what is there without touching it', async (t) => {
     assert.equal(win.targets.every((r) => r.id.includes('windows') || r.id.includes('-windows')
       || ['npm-cache-windows', 'pip-cache-windows'].includes(r.id)), true);
     const mac = await survey({ platform: 'darwin' });
-    assert.equal(mac.targets.some((r) => r.id === 'macos-trash'), true);
+    assert.equal(mac.targets.some((r) => r.id === 'macos-user-caches'), true);
     assert.equal(mac.targets.some((r) => r.id === 'windows-user-temp'), false);
   });
 
@@ -481,11 +485,11 @@ test('survey reports what is there without touching it', async (t) => {
     assert.deepEqual(report.omitted.map((o) => o.id), ['ios-backups']);
   });
 
-  await t.test('the permanent entries are flagged as such', async () => {
-    const report = await survey({ platform: 'darwin' });
-    const trash = report.targets.find((r) => r.id === 'macos-trash');
-    assert.equal(trash.permanent, true);
-    assert.equal(report.targets.filter((r) => r.permanent).length, 1);
+  await t.test('no target reports itself as permanent, because none is', async () => {
+    for (const platform of ['darwin', 'win32']) {
+      const report = await survey({ platform });
+      assert.equal(report.targets.some((r) => r.permanent), false);
+    }
   });
 
   await t.test('a survey against a broken document refuses to run at all', async () => {

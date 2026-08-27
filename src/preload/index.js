@@ -12,6 +12,10 @@ const CH = {
   scanProgress: 'scan:progress',
   reveal: 'shell:reveal',
   securityAudit: 'security:audit',
+  cleanerSurvey: 'cleaner:survey',
+  cleanerRemove: 'cleaner:remove',
+  cleanerProgress: 'cleaner:progress',
+  cleanerContents: 'cleaner:contents',
 };
 
 const api = {
@@ -48,6 +52,37 @@ const api = {
     // Resolves to { platform, supported, checks[] }. Read-only: running this
     // never changes a setting and never asks for elevation.
     audit: () => ipcRenderer.invoke(CH.securityAudit),
+  },
+
+  cleaner: {
+    // Resolves to { ok, platform, targets[], unavailable[], totals }. Each
+    // target carries its own opaque tokens. Read-only: surveying measures and
+    // mints, and removes nothing.
+    //
+    // Slow by nature — a full survey walks every cache directory on the
+    // machine — so subscribe with onProgress first and let rows arrive.
+    survey: () => ipcRenderer.invoke(CH.cleanerSurvey),
+
+    // Takes ONLY tokens from a survey in this session. There is deliberately
+    // no overload here that accepts a path or a target id: the renderer has no
+    // way to name a thing on disk, and that is the point of the whole design.
+    // Resolves to { ok, trashed[], skipped[], totals }.
+    remove: (tokens) => ipcRenderer.invoke(CH.cleanerRemove, tokens),
+
+    // Resolves to { ok, items: [{ token, name, bytes, mtimeMs }], total, shown }.
+    // Names, not paths: enough to recognise your own file, and no more.
+    contents: (targetId) => ipcRenderer.invoke(CH.cleanerContents, targetId),
+
+    // Subscribe to survey progress. Returns a real unsubscribe function, the
+    // same contract as scan.onProgress.
+    onProgress: (callback) => {
+      if (typeof callback !== 'function') {
+        throw new TypeError('onProgress expects a callback function');
+      }
+      const listener = (_event, progress) => callback(progress);
+      ipcRenderer.on(CH.cleanerProgress, listener);
+      return () => ipcRenderer.removeListener(CH.cleanerProgress, listener);
+    },
   },
 };
 
