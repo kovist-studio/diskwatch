@@ -77,15 +77,32 @@ class Treemap extends window.CanvasSurface {
     const opts = options || {};
     this.onHover = typeof opts.onHover === 'function' ? opts.onHover : null;
     this.onZoom = typeof opts.onZoom === 'function' ? opts.onZoom : null;
+    // Selection changed. Fires with null when it is cleared, so the readout
+    // and the Reveal button never have to guess.
+    this.onSelect = typeof opts.onSelect === 'function' ? opts.onSelect : null;
+    // Enter on the keyboard: the verb for the current selection.
+    this.onActivate = typeof opts.onActivate === 'function' ? opts.onActivate : null;
 
     this.tree = null;
     this.root = null;
+
+    // Two independent states. `hovered` follows the cursor and is transient;
+    // `selected` is set by a click and survives the cursor going elsewhere.
+    // They are deliberately separate fields rather than one "current" node,
+    // because both can be true of different rectangles at the same moment and
+    // both have to be drawn.
     this.hovered = null;
+    this.selected = null;
+
+    // Focusable so the map can be driven without a mouse. Set here rather than
+    // in the HTML so the attribute cannot drift away from the key handling.
+    if (this.canvas.tabIndex < 0) this.canvas.tabIndex = 0;
 
     this._handlers = {
       mousemove: (e) => this._onMove(e),
       mouseleave: () => this._onLeave(),
       click: (e) => this._onClick(e),
+      keydown: (e) => this._onKey(e),
     };
   }
 
@@ -128,12 +145,17 @@ class Treemap extends window.CanvasSurface {
       });
     }
     this.hovered = null;
+    this._clearSelection();
     super.deactivate();
   }
 
   setTree(tree) {
     this.tree = tree || null;
     this.hovered = null;
+    // A new scan, or a zoom into a subdirectory, replaces every rectangle on
+    // the canvas. A selection made against the old set is a pointer to
+    // something no longer displayed, so it goes.
+    this._clearSelection();
     this.layout();
     this.render();
   }
@@ -270,10 +292,134 @@ class Treemap extends window.CanvasSurface {
     );
   }
 
+  // Selection is for leaves — a thing on disk that Reveal can actually open.
+  // Directories zoom instead, which is existing behaviour and unchanged. A
+  // synthetic aggregate is several files at once and has no path, so it is
+  // neither.
+  _selectable(node) {
+    return (
+      node &&
+      node.data.type !== 'dir' &&
+      !node.data.synthetic &&
+      !!node.data.path
+    );
+  }
+
+  _select(node) {
+    if (node === this.selected) return;
+    this.selected = node || null;
+    this.render();
+    if (this.onSelect) this.onSelect(node ? node.data : null, node ? node.value : 0);
+  }
+
+  // Internal: drops the selection WITHOUT repainting, for callers that are
+  // about to repaint anyway (setTree, deactivate).
+  _clearSelection() {
+    if (!this.selected) return;
+    this.selected = null;
+    if (this.onSelect) this.onSelect(null, 0);
+  }
+
+  // Public: clear and repaint. This is what an Escape from outside the canvas
+  // calls, where nothing else is going to trigger a render.
+  clearSelection() {
+    if (!this.selected) return;
+    this._clearSelection();
+    this.render();
+  }
+
   _onClick(event) {
     const { x, y } = this.pointer(event);
     const hit = this.hitTest(x, y);
-    if (this._zoomable(hit) && this.onZoom) this.onZoom(hit.data);
+
+    // A click is also how the map takes keyboard focus.
+    this.canvas.focus({ preventScroll: true });
+
+    if (this._zoomable(hit) && this.onZoom) {
+      this.onZoom(hit.data);
+      return;
+    }
+    if (this._selectable(hit)) {
+      this._select(hit);
+      return;
+    }
+    // Empty space, or something that is neither a file nor a folder you can
+    // open. Nothing to select, so let go of whatever was selected.
+    this._select(null);
+  }
+
+  // ---------- Keyboard ----------
+
+  // Arrow keys move between SIBLINGS — the leaves sharing a parent with the
+  // current selection. Sibling rather than global movement keeps the map
+  // navigable: within one folder the rectangles are adjacent and ordered, so
+  // "left" means something. Across the whole tree it would not.
+  _onKey(event) {
+    const key = event.key;
+
+    if (key === 'Escape') {
+      if (this.selected) {
+        event.preventDefault();
+        this._select(null);
+      }
+      return;
+    }
+
+    if (key === 'Enter' || key === ' ') {
+      if (this.selected && this.onActivate) {
+        event.preventDefault();
+        this.onActivate(this.selected.data);
+      }
+      return;
+    }
+
+    const dir = { ArrowLeft: 'l', ArrowRight: 'r', ArrowUp: 'u', ArrowDown: 'd' }[key];
+    if (!dir || !this.root) return;
+    event.preventDefault();
+
+    const next = this.selected ? this._sibling(this.selected, dir) : this._firstSelectable();
+    if (next) this._select(next);
+  }
+
+  _firstSelectable() {
+    for (const d of this.root.leaves()) {
+      if (this._selectable(d)) return d;
+    }
+    return null;
+  }
+
+  // Nearest selectable sibling whose centre lies in the given direction,
+  // scored so that a small sideways drift is preferred over a large one.
+  _sibling(node, dir) {
+    const parent = node.parent;
+    if (!parent || !parent.children) return null;
+
+    const cx = (node.x0 + node.x1) / 2;
+    const cy = (node.y0 + node.y1) / 2;
+
+    let best = null;
+    let bestScore = Infinity;
+
+    for (const d of parent.children) {
+      if (d === node || !this._selectable(d)) continue;
+      const dx = (d.x0 + d.x1) / 2 - cx;
+      const dy = (d.y0 + d.y1) / 2 - cy;
+
+      let along;
+      let across;
+      if (dir === 'l') { along = -dx; across = Math.abs(dy); }
+      else if (dir === 'r') { along = dx; across = Math.abs(dy); }
+      else if (dir === 'u') { along = -dy; across = Math.abs(dx); }
+      else { along = dy; across = Math.abs(dx); }
+
+      if (along <= 0) continue;
+      const score = along + across * 2;
+      if (score < bestScore) {
+        bestScore = score;
+        best = d;
+      }
+    }
+    return best;
   }
 
   colorFor(data) {
@@ -304,7 +450,11 @@ class Treemap extends window.CanvasSurface {
     for (const d of this.nodes) {
       if (d.depth === 1 && d.children) this._drawContainer(ctx, d);
     }
+    // Order matters. Hover paints a tint the selection outline then sits on
+    // top of, so a rectangle that is both hovered and selected shows both
+    // rather than one hiding the other.
     if (this.hovered) this._drawHighlight(ctx, this.hovered);
+    if (this.selected) this._drawSelection(ctx, this.selected);
   }
 
   _drawLeaf(ctx, d) {
@@ -376,6 +526,32 @@ class Treemap extends window.CanvasSurface {
     ctx.strokeStyle = this.colEdge;
     ctx.lineWidth = 2;
     ctx.strokeRect(d.x0 + 1, d.y0 + 1, Math.max(0, w - 2), Math.max(0, h - 2));
+    ctx.restore();
+  }
+
+  // Selection has to read as sticky where hover reads as passing, and it has
+  // to survive being drawn over any colour in the age ramp — pale recent
+  // rectangles at one end, near-black old ones at the other. A single stroke
+  // in one colour disappears against half of that range.
+  //
+  // So it is two strokes: a dark one laid down first as a shadow, and a light
+  // one inside it. One of the pair always has contrast, whatever is underneath.
+  // Heavier than hover's 2px, and with no fill tint, so the two states stay
+  // distinguishable when they land on the same rectangle.
+  _drawSelection(ctx, d) {
+    const w = d.x1 - d.x0;
+    const h = d.y1 - d.y0;
+    if (w <= 0 || h <= 0) return;
+    ctx.save();
+
+    ctx.strokeStyle = this.colInk;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(d.x0 + 2, d.y0 + 2, Math.max(0, w - 4), Math.max(0, h - 4));
+
+    ctx.strokeStyle = this.colText;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(d.x0 + 2, d.y0 + 2, Math.max(0, w - 4), Math.max(0, h - 4));
+
     ctx.restore();
   }
 

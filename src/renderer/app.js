@@ -239,6 +239,8 @@
   const treemap = new window.Treemap(canvas, {
     onHover: (data, value) => showHover(data, value),
     onZoom: (data) => zoomInto(data),
+    onSelect: (data, value) => showSelected(data, value),
+    onActivate: (data) => revealPath(data && data.path),
   });
 
   function showField() {
@@ -275,9 +277,35 @@
   // to the verb.
   let hovered = null;
 
+  // Two states, and the readout can only show one at a time. Selection wins:
+  // clicking a file is a deliberate act that says "this is the one I mean",
+  // and a readout that reverted to whatever the cursor drifted over would
+  // undo it. Hover keeps its highlight on the canvas either way.
+  let selected = null;
+
+  function showSelected(data, value) {
+    selected = data || null;
+    if (data) {
+      paintReadout(data, value);
+    } else if (hovered) {
+      paintReadout(hovered, hovered.size || 0);
+    } else {
+      clearHover();
+    }
+    // Reveal acts on the SELECTION, so it is available exactly when there is
+    // one. Hovering no longer arms it.
+    elHoverReveal.disabled = !(selected && selected.path);
+  }
+
   function showHover(data, value) {
     if (!data) return;
     hovered = data;
+    // A selection is showing, so hovering must not overwrite the readout.
+    if (selected) return;
+    paintReadout(data, value);
+  }
+
+  function paintReadout(data, value) {
 
     // Fill the fixed-width siblings FIRST. The path is a flex:1 item, so its
     // width is whatever they leave over — measuring it before they have their
@@ -291,7 +319,7 @@
         ? `${count(data.childCount)} ${plural(data.childCount, 'item', 'items')} inside — click to open`
         : formatDate(data.mtime);
     }
-    elHoverReveal.disabled = false;
+    elHoverReveal.disabled = !(selected && selected.path);
 
     // Row is settled: now the path can be measured against its real width.
     if (data.synthetic) {
@@ -307,18 +335,33 @@
 
   function clearHover() {
     hovered = null;
-    setTruncated(elHoverPath, 'Point at the map to inspect an item');
+    if (selected) return; // the readout belongs to the selection
+    setTruncated(elHoverPath, 'Click an item to inspect it');
     elHoverPath.title = '';
     elHoverSize.textContent = '';
     elHoverDate.textContent = '';
     elHoverReveal.disabled = true;
   }
 
-  elHoverReveal.addEventListener('click', () => {
-    if (!hovered || !hovered.path) return;
-    api.reveal(hovered.path).catch(() => {
+  function revealPath(target) {
+    if (!target) return;
+    api.reveal(target).catch(() => {
       elStatus.textContent = 'That item couldn’t be revealed — it may have moved';
     });
+  }
+
+  elHoverReveal.addEventListener('click', () => {
+    revealPath(selected && selected.path);
+  });
+
+  // Escape clears the selection wherever focus happens to be. The treemap
+  // handles it too, for when the canvas itself has focus; this covers the
+  // case where the person tabbed to the Reveal button and changed their mind.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !selected) return;
+    if (currentTab() !== 'scan') return;
+    e.preventDefault();
+    treemap.clearSelection();
   });
 
   // ---------- Breadcrumbs ----------

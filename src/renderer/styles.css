@@ -232,6 +232,20 @@ p {
   padding: 12px;
 }
 
+/* The map takes keyboard focus so it can be driven with arrow keys. The global
+   :focus-visible ring would trace the whole canvas, which says nothing about
+   which rectangle is selected — the selection outline drawn on the canvas is
+   the real indicator. Keep a quiet edge so it is still clear the map has focus,
+   and let the outline inside do the pointing. */
+.blockfield:focus {
+  outline: none;
+}
+
+.blockfield:focus-visible {
+  outline: 1px solid var(--line);
+  outline-offset: 2px;
+}
+
 .blockfield {
   display: block;
   width: 100%;
