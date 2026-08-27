@@ -20,6 +20,7 @@
     scan: document.getElementById('view-scan'),
     security: document.getElementById('view-security'),
     clean: document.getElementById('view-clean'),
+    check: document.getElementById('view-check'),
   };
 
   function currentTab() {
@@ -1304,6 +1305,245 @@
     return { showEmpty, setReassurance };
   })();
 
+  // ---------- Check ----------
+  //
+  // THE WORDING RULE, which outranks every other consideration in this view:
+  // nothing here ever says a site is safe. Not "safe", not "clean", not "no
+  // threats found". The result for a domain nothing was found about is a
+  // statement about what was SEARCHED — "Not found in 3 blocklists, checked 2
+  // hours ago" — because that is the only thing that was actually established.
+  //
+  // The asymmetry is the entire reason: a false "this might be a scam"
+  // inconveniences someone for a minute. A false "this is safe" is how a
+  // person hands over their savings. So the app is allowed to be wrong in the
+  // first direction and structurally cannot be wrong in the second, because it
+  // never makes the claim that could be wrong that way.
+  //
+  // Each check gets its own line saying what it found and when. They are never
+  // summed, scored, or reduced to a verdict. The person reads the signals.
+  const check = (function () {
+    const elStatus = el('check-status');
+    const elCache = el('check-cache');
+    const elInput = el('check-input');
+    const elResults = el('check-results');
+    const btnRun = el('check-run');
+    const btnRefresh = el('check-refresh');
+
+    let cache = null;
+
+    const node = (tag, className, text) => {
+      const n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text !== undefined) n.textContent = text;
+      return n;
+    };
+
+    // "2 hours ago", "6 days ago". Vague on purpose past a point: the person
+    // needs to know whether this is fresh or elderly, not the minute.
+    function ago(hours) {
+      if (hours === null || hours === undefined) return 'never';
+      if (hours < 1) return 'less than an hour ago';
+      if (hours < 24) return `${hours} ${plural(hours, 'hour', 'hours')} ago`;
+      const days = Math.floor(hours / 24);
+      return `${days} ${plural(days, 'day', 'days')} ago`;
+    }
+
+    function paintCache() {
+      if (!cache || !cache.ready) {
+        elStatus.textContent = 'No lists downloaded yet';
+        elCache.textContent =
+          'The blocklists have not been downloaded, so nothing can be checked against them yet. ' +
+          'Choose Update lists to fetch them — about 18 MB, once a day.';
+        return;
+      }
+      const n = cache.listCount;
+      elStatus.textContent = `${n} ${plural(n, 'list', 'lists')} downloaded`;
+      // The claim is only as current as its stalest list, so that is the number
+      // shown. Reporting the newest would flatter it.
+      elCache.textContent =
+        `Checking against ${n} ${plural(n, 'blocklist', 'blocklists')}, last updated ` +
+        `${ago(cache.oldestAgeHours)}. An older list knows about fewer sites.`;
+    }
+
+    // ---------- One line per check ----------
+
+    function line(state, what, detail) {
+      const li = node('li', `line line--${state}`);
+      li.appendChild(node('span', 'line__mark', state === 'found' ? '!' : state === 'unknown' ? '?' : '·'));
+      const body = node('span');
+      body.appendChild(node('span', 'line__what', what));
+      if (detail) body.appendChild(node('span', 'line__detail', detail));
+      li.appendChild(body);
+      return li;
+    }
+
+    function blocklistLine(r) {
+      const listCount = cache && cache.listCount ? cache.listCount : r.blocklist.checkedSources;
+
+      if (!r.blocklist.listed) {
+        // THE SENTENCE THIS WHOLE VIEW EXISTS TO GET RIGHT. It describes the
+        // search, not the site.
+        return line(
+          'none',
+          `Not found in ${listCount} ${plural(listCount, 'blocklist', 'blocklists')}, ` +
+            `checked ${ago(cache && cache.oldestAgeHours)}`,
+          'That means it is not on the lists we have. It is not a statement about the site.',
+        );
+      }
+
+      const names = r.blocklist.sources.map((s) => s.id).join(', ');
+      const n = r.blocklist.sources.length;
+      let detail = r.blocklist.matchedAs !== r.domain
+        ? `Listed as ${r.blocklist.matchedAs}, which covers this address.`
+        : '';
+
+      // Independent filters, so the chance every one of them is wrong at once
+      // is the product of their rates. Two lists agreeing is not twice as good
+      // as one — it is thousands of times less likely to be a mistake.
+      if (n > 1) {
+        detail += `${detail ? ' ' : ''}${n} lists agree, which is far less likely to be a mistake than one.`;
+      } else if (r.blocklist.falsePositiveRate > 0) {
+        const oneIn = Math.round(1 / r.blocklist.falsePositiveRate);
+        detail += `${detail ? ' ' : ''}One list. About 1 in ${count(oneIn)} entries is a mistaken match.`;
+      }
+
+      return line('found', `Listed by ${names}`, detail.trim());
+    }
+
+    function ageLine(signal) {
+      if (!signal.known) {
+        // Unknown is never rendered as reassurance.
+        return line('unknown', 'Age could not be determined', 'The registry did not answer, so this tells us nothing either way.');
+      }
+      const d = signal.detail;
+      const date = formatDate(Date.parse(d.registeredAt));
+      const days = count(d.ageDays);
+      if (signal.present) {
+        return line('found', `Registered ${date} — ${days} days old`, 'Sites used for scams are usually registered shortly before they are used.');
+      }
+      return line('none', `Registered ${date} — ${days} days old`, null);
+    }
+
+    function scriptLine(signal) {
+      const d = signal.detail;
+      if (!signal.present) {
+        return line('none', d.isIdn ? 'Written in one alphabet' : 'Ordinary Latin characters', null);
+      }
+      const li = line(
+        'found',
+        `Mixes ${d.scripts.join(' and ')} characters in one name`,
+        d.confusables.length
+          ? `${d.confusables.map((c) => `${c.char} (${c.codePoint}) looks like ${c.looksLike}`).join(', ')}.`
+          : null,
+      );
+      // Both forms, side by side. This IS the attack: one of these is what the
+      // person read, the other is where the link actually goes.
+      const forms = node('div', 'forms');
+      forms.appendChild(node('span', 'forms__key', 'you see'));
+      forms.appendChild(node('span', 'forms__val', d.unicode));
+      forms.appendChild(node('span', 'forms__key', 'it goes to'));
+      forms.appendChild(node('span', 'forms__val', d.ascii));
+      li.querySelector('span:last-child').appendChild(forms);
+      return li;
+    }
+
+    function brandLine(signal) {
+      if (!signal.present) return line('none', 'Not a near-miss of a commonly faked name', null);
+      const d = signal.detail;
+      return line(
+        'found',
+        `${d.distance} ${plural(d.distance, 'character', 'characters')} different from ${d.brand}`,
+        `${d.label} is impersonated often. Legitimate names sit close to each other too, so this on its own is not conclusive.`,
+      );
+    }
+
+    function findingFor(r) {
+      const box = node('div', 'finding');
+
+      const head = node('div', 'finding__domain');
+      head.appendChild(node('span', 'finding__name', r.domain));
+      if (r.raw && r.raw !== r.domain) head.appendChild(node('span', 'finding__raw', r.raw));
+      box.appendChild(head);
+
+      const lines = node('ul', 'lines');
+      lines.appendChild(blocklistLine(r));
+      for (const s of r.signals) {
+        if (s.id === 'domain-age') lines.appendChild(ageLine(s));
+        if (s.id === 'mixed-script') lines.appendChild(scriptLine(s));
+        if (s.id === 'brand-similarity') lines.appendChild(brandLine(s));
+      }
+      box.appendChild(lines);
+
+      // Attribution for any list that claimed this domain. CC BY-SA 4.0 makes
+      // this a licence condition, not a courtesy.
+      if (r.blocklist.listed && r.blocklist.sources.length > 0) {
+        box.appendChild(
+          node('p', 'credit', r.blocklist.sources.map((s) => s.attribution).join(' · ')),
+        );
+      }
+      return box;
+    }
+
+    // ---------- Running a check ----------
+
+    async function run() {
+      const text = elInput.value.trim();
+      elResults.textContent = '';
+      if (text === '') return;
+
+      btnRun.disabled = true;
+      elStatus.textContent = 'Checking…';
+      const result = await api.checker.check(text);
+      btnRun.disabled = false;
+
+      if (!result || !result.ok) {
+        elResults.appendChild(node('p', 'note', (result && result.detail) || 'That could not be checked.'));
+        paintCache();
+        return;
+      }
+
+      cache = result.cache;
+      paintCache();
+
+      if (result.results.length === 0) {
+        elResults.appendChild(
+          node('p', 'note', 'No web address found in that text. Paste a link, or the message it arrived in.'),
+        );
+        return;
+      }
+
+      for (const r of result.results) elResults.appendChild(findingFor(r));
+    }
+
+    async function refresh() {
+      btnRefresh.disabled = true;
+      elStatus.textContent = 'Updating lists…';
+      const result = await api.checker.refresh();
+      btnRefresh.disabled = false;
+      if (result && result.ok) cache = result.cache;
+      paintCache();
+    }
+
+    async function load() {
+      const status = await api.checker.status();
+      if (status && status.ok) cache = status;
+      paintCache();
+    }
+
+    btnRun.addEventListener('click', run);
+    btnRefresh.addEventListener('click', refresh);
+    elInput.addEventListener('keydown', (e) => {
+      // Enter runs it; Shift+Enter is a newline, because a pasted message has
+      // newlines in it.
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        run();
+      }
+    });
+
+    return { load };
+  })();
+
   // ---------- Start ----------
   if (!api) {
     setStage('empty');
@@ -1329,4 +1569,5 @@
 
   showEmpty();
   clean.showEmpty();
+  check.load();
 })();

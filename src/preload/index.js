@@ -16,6 +16,9 @@ const CH = {
   cleanerRemove: 'cleaner:remove',
   cleanerProgress: 'cleaner:progress',
   cleanerContents: 'cleaner:contents',
+  checkerCheck: 'checker:check',
+  checkerStatus: 'checker:status',
+  checkerRefresh: 'checker:refresh',
 };
 
 const api = {
@@ -83,6 +86,22 @@ const api = {
       ipcRenderer.on(CH.cleanerProgress, listener);
       return () => ipcRenderer.removeListener(CH.cleanerProgress, listener);
     },
+  },
+
+  checker: {
+    // Resolves to { ok, found[], results[], cache }. Each result carries the
+    // blocklist finding and the three heuristic signals SEPARATELY. There is
+    // no score and no verdict in the payload, deliberately — the renderer is
+    // required to show the signals rather than a conclusion drawn from them.
+    check: (text) => ipcRenderer.invoke(CH.checkerCheck, text),
+
+    // How old the cached lists are. A "not found" from a six-day-old cache is
+    // a weaker claim than one from this morning, and the UI says which.
+    status: () => ipcRenderer.invoke(CH.checkerStatus),
+
+    // Fetch anything due and rebuild if the content changed. Both are no-ops
+    // when nothing is stale.
+    refresh: () => ipcRenderer.invoke(CH.checkerRefresh),
   },
 };
 

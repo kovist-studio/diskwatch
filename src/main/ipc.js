@@ -7,6 +7,9 @@ const { runAudit, formatAudit } = require('./security');
 const { getSurface } = require('./surface');
 const cleaner = require('./cleaner');
 const remover = require('./cleaner/remove');
+const checkerCheck = require('./checker/check');
+const checkerFetch = require('./checker/fetch');
+const checkerFilter = require('./checker/filter');
 
 // Channel names must match the preload's CH map.
 const CH = {
@@ -21,6 +24,9 @@ const CH = {
   cleanerRemove: 'cleaner:remove',
   cleanerProgress: 'cleaner:progress',
   cleanerContents: 'cleaner:contents',
+  checkerCheck: 'checker:check',
+  checkerStatus: 'checker:status',
+  checkerRefresh: 'checker:refresh',
 };
 
 // Everything arriving over IPC is untrusted input, even though we authored the
@@ -273,6 +279,53 @@ function registerIpcHandlers() {
         code: err && err.code ? err.code : 'ECLEANERREMOVE',
         detail: err && err.message ? err.message : String(err),
       };
+    }
+  });
+
+  // ---------- Link checker ----------
+
+  // Takes whatever the person pasted — a URL, a bare domain, or an entire
+  // message — and returns one result per domain found, plus the state of the
+  // cache the answer came from.
+  //
+  // It never returns a verdict. The blocklist result and the three heuristics
+  // come back as separate findings with their own evidence, and the renderer
+  // shows them as separate lines. Combining them into a score is a decision
+  // this channel deliberately does not make.
+  ipcMain.handle(CH.checkerCheck, async (_event, text) => {
+    assertNonEmptyString(text, 'text');
+    try {
+      // A pasted email can be long; there is no reason to accept a novel.
+      return await checkerCheck.check(text.slice(0, 20000));
+    } catch (err) {
+      return {
+        ok: false,
+        code: err && err.code ? err.code : 'ECHECKFAILED',
+        detail: err && err.message ? err.message : String(err),
+      };
+    }
+  });
+
+  // How current the lists are, so the UI can say what a "not found" is worth
+  // before anyone has typed anything.
+  ipcMain.handle(CH.checkerStatus, async () => {
+    try {
+      return { ok: true, ...(await checkerCheck.cacheState()) };
+    } catch (err) {
+      return { ok: false, detail: err && err.message ? err.message : String(err) };
+    }
+  });
+
+  // Fetch anything stale, then rebuild the filter if the content actually
+  // changed. Both steps are no-ops when nothing is due, so this is safe to
+  // call whenever the person asks for it.
+  ipcMain.handle(CH.checkerRefresh, async () => {
+    try {
+      const fetched = await checkerFetch.refresh();
+      const built = await checkerFilter.ensure();
+      return { ok: true, fetched, built, cache: await checkerCheck.cacheState() };
+    } catch (err) {
+      return { ok: false, detail: err && err.message ? err.message : String(err) };
     }
   });
 }

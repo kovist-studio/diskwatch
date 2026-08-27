@@ -49,6 +49,17 @@
           >
             Clean
           </button>
+          <button
+            class="tab"
+            role="tab"
+            id="tab-check"
+            data-tab="check"
+            aria-selected="false"
+            aria-controls="view-check"
+            tabindex="-1"
+          >
+            Check
+          </button>
         </div>
       </nav>
 
@@ -294,6 +305,47 @@
               </button>
               <button class="btn btn--primary" id="clean-confirm" hidden>Move to Trash</button>
               <button class="btn btn--primary" id="clean-again" hidden>Look again</button>
+            </div>
+          </footer>
+        </section>
+        <section
+          class="view"
+          id="view-check"
+          role="tabpanel"
+          aria-labelledby="tab-check"
+          data-view="check"
+          hidden
+        >
+          <header class="view__head">
+            <p class="microlabel" id="check-status">No lists downloaded yet</p>
+            <p class="reassure" id="check-cache"></p>
+          </header>
+
+          <div class="stage" id="check-stage">
+            <div class="checkbox-wrap">
+              <label class="microlabel" for="check-input">
+                Paste a link, or the whole message it arrived in
+              </label>
+              <textarea
+                class="checkinput mono"
+                id="check-input"
+                rows="4"
+                spellcheck="false"
+                placeholder="https://example.com/verify — or paste the entire text message or email"
+              ></textarea>
+              <p class="note" id="check-hint">
+                Nothing you paste leaves this computer. The lists are already downloaded and
+                the check runs here.
+              </p>
+            </div>
+
+            <div class="results" id="check-results"></div>
+          </div>
+
+          <footer class="view__foot">
+            <div class="actions">
+              <button class="btn" id="check-refresh">Update lists</button>
+              <button class="btn btn--primary" id="check-run">Check</button>
             </div>
           </footer>
         </section>
