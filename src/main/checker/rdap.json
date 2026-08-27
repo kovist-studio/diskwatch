@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "note": "RDAP is the IETF replacement for WHOIS and answers in JSON. Unlike sources.json, the full set of endpoints CANNOT be written down here: there is one RDAP server per registry and the mapping changes as registries move. What is written down is the single bootstrap endpoint below, published by IANA, from which the per-TLD servers are discovered. Every discovered URL must still be https, and nothing is contacted that did not come out of this bootstrap file. That is a genuine widening of the allowlist posture used for blocklists, and it is recorded in DECISIONS.md rather than glossed over.",
+  "bootstrap": {
+    "url": "https://data.iana.org/rdap/dns.json",
+    "maintainer": "IANA, which operates the DNS root and publishes the authoritative registry-to-RDAP-server map.",
+    "licence": "Public data published by IANA for this purpose.",
+    "cacheHours": 168
+  },
+  "query": {
+    "timeoutMs": 8000,
+    "cacheDays": 30,
+    "failureCacheHours": 6,
+    "note": "A registration date never changes once set, so a successful answer is cached for a long time and the age is recomputed from the stored date on every read rather than being stored. Failures are cached briefly, because a server that was down should be retried but not on every single lookup."
+  }
+}

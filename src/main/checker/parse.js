@@ -19,7 +19,14 @@ const NULL_HOSTS = new Set([
 // Deliberately permissive on length and charset (IDN punycode is a-z0-9-),
 // strict on shape: labels separated by dots, no empty labels, at least one dot,
 // and a TLD that is not numeric. An IPv4 address must not survive as a domain.
-const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?\.)+[a-z]{2,63}$/;
+// The TLD alternation matters: a punycode TLD such as xn--p1ai (.рф) contains
+// digits, so an [a-z]-only pattern silently rejects every domain under every
+// internationalised TLD — including the legitimate ones this check is careful
+// not to flag.
+const DOMAIN_RE =
+  /^(?=.{1,253}$)([a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})$/;
+
+const { domainToASCII } = require('node:url');
 
 // One line to a domain, or null if the line carries none.
 function normalise(rawLine, format) {
@@ -69,6 +76,19 @@ function normalise(rawLine, format) {
   if (colon !== -1) line = line.slice(0, colon);
 
   if (line === '' || NULL_HOSTS.has(line)) return null;
+
+  // Internationalised names are canonicalised to their punycode form BEFORE
+  // validation, for two reasons. The blocklists store xn-- ASCII, so a lookup
+  // has to arrive in that shape to match. And without this the ASCII-only
+  // pattern below rejects every Unicode domain — which would mean the one
+  // input the homograph check exists to examine could never reach it. Getting
+  // this wrong is silent: the domain simply comes back null and looks unknown.
+  if (/[^\x00-\x7f]/.test(line)) {
+    const ascii = domainToASCII(line);
+    if (!ascii) return null;
+    line = ascii;
+  }
+
   if (!DOMAIN_RE.test(line)) return null;
   return line;
 }

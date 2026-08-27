@@ -373,6 +373,10 @@ async function status(options = {}) {
 }
 
 module.exports = {
+  // Shared with rdap.js so there is ONE implementation of "https only, never
+  // downgraded by a redirect, bounded by a timeout" rather than two that can
+  // drift apart.
+  httpsGet,
   refresh,
   status,
   validate,

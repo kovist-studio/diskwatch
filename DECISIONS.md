@@ -3,6 +3,63 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## V4 — RDAP widens the network allowlist, and heuristics never decide (2026-08-28)
+
+**Two decisions, recorded together because the second is what makes the first
+acceptable.**
+
+**1. RDAP endpoints cannot all be written down, and that is a real widening.**
+`sources.json` lists every blocklist URL, and `fetch.js` has no code path that
+can request anything else. RDAP cannot work that way: there is one server per
+registry, several hundred of them, and the mapping changes as registries move.
+
+So `rdap.json` writes down the **bootstrap** endpoint — IANA's published
+registry-to-server map — and every server is discovered from it. The narrower
+guarantees survive: https only, a redirect that leaves https is refused, there
+is a timeout, and a discovered http endpoint is skipped rather than used. What
+does not survive is "you can read the file and know every host this app will
+contact". You can read it and know the one host it *starts* from.
+
+That is written here rather than glossed, because a future reader comparing
+`sources.json` with `rdap.json` will notice they are not the same posture, and
+should find the reason rather than assume it was carelessness.
+
+**2. A heuristic that renders a verdict is how a false accusation ships.**
+Each of the three signals fires on legitimate domains, and not rarely:
+
+- **paypay.com** is a real Japanese payment company, one edit from paypal.com.
+  The brand check flags it. It is correct to flag it and wrong to conclude
+  anything from it alone.
+- **Every domain was registered recently once.** A three-day-old domain is the
+  strongest single signal available and is still the normal state of every new
+  business on the internet.
+- **президент.рф** is a Russian government domain full of characters that look
+  like Latin ones. It is not flagged, because the signal is script *mixing*
+  rather than the presence of a non-Latin script — treating any non-Latin
+  script as suspicious would flag most of the internet outside the anglosphere.
+
+So `heuristics.js` returns observations with their evidence and stops. There is
+no `score`, no `risk`, no `verdict`, no `malicious` field, and the word "scam"
+appears nowhere in a result. A test asserts all of that, and a second test
+fails the build if any heuristic module assigns a verdict-shaped field. Weighing
+signals is a presentation decision, made where the user's words are chosen.
+
+**"Unknown" is kept distinct from "absent" throughout.** When RDAP cannot
+answer, the age signal reports `known: false` rather than `present: false`, and
+the count of unknowns is returned separately. Collapsing them would let a
+domain whose age could not be checked read as a domain that had been checked
+and found old — which is the one way this design could quietly flatter
+something dangerous.
+
+**A bug worth remembering.** `normalise()` validated against an ASCII-only
+pattern, so it returned null for every internationalised domain — meaning the
+one input the homograph check exists to examine could never reach it. It failed
+silently, as a domain that simply looked unparseable. Domains are now
+canonicalised to punycode before validation, which is also the form the
+blocklists store, so a lookup and a heuristic now agree on what a domain is.
+The second half of the same bug: an `[a-z]{2,63}` TLD pattern rejects
+`xn--p1ai` (.рф), because punycode TLDs contain digits.
+
 ## V4 — The Bloom filter is built on the user's machine, never shipped (2026-08-28)
 
 **Constraint, not a preference:** DiskWatch must never distribute a Bloom filter

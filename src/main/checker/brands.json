@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "note": "Domains that are impersonated often enough to be worth checking new domains against. Data rather than code, the same posture as targets.json and sources.json: anyone can read exactly which names this app treats as bait without following logic. Inclusion is not an endorsement or a partnership — it means 'this name is frequently faked', which is a statement about attackers, not about the company.",
+  "matching": {
+    "minDistance": 1,
+    "maxDistance": 2,
+    "note": "Distance 0 is the real domain and is never a signal. Distance 1-2 catches paypaI.com and paypa1.com. Beyond 2 the false-positive rate stops being worth it: at distance 3 from a 10-character brand you are matching a quarter of the dictionary."
+  },
+  "brands": [
+    { "domain": "paypal.com", "label": "PayPal", "why": "The most impersonated brand in phishing for over a decade. Payment credentials with immediate cash-out value." },
+    { "domain": "apple.com", "label": "Apple", "why": "Apple ID unlocks iCloud backups, Find My, and purchases. 'Your account has been locked' is one of the highest-volume phishing templates in circulation." },
+    { "domain": "microsoft.com", "label": "Microsoft", "why": "Office 365 credentials are the standard entry point for business email compromise." },
+    { "domain": "office365.com", "label": "Microsoft 365", "why": "Targeted separately from microsoft.com because the login flow lives on its own domains and users do not know which is genuine." },
+    { "domain": "google.com", "label": "Google", "why": "A Google account is the password-reset address for everything else the person owns." },
+    { "domain": "amazon.com", "label": "Amazon", "why": "Order-confirmation and delivery-problem pretexts, backed by a saved payment method." },
+    { "domain": "netflix.com", "label": "Netflix", "why": "Billing-failure pretexts. Low individual value, but very high believability." },
+    { "domain": "facebook.com", "label": "Facebook", "why": "Account recovery and marketplace fraud." },
+    { "domain": "instagram.com", "label": "Instagram", "why": "Copyright-strike and verification pretexts aimed at creators with reputational value to lose." },
+    { "domain": "whatsapp.com", "label": "WhatsApp", "why": "Verification-code theft, which converts directly into account takeover." },
+    { "domain": "chase.com", "label": "Chase", "why": "Largest US retail bank by deposits." },
+    { "domain": "wellsfargo.com", "label": "Wells Fargo", "why": "Consistently among the most impersonated US banks." },
+    { "domain": "bankofamerica.com", "label": "Bank of America", "why": "As above. Long domain, so lookalikes have more room to hide a substitution." },
+    { "domain": "hsbc.com", "label": "HSBC", "why": "Large international retail footprint across the UK and Asia." },
+    { "domain": "barclays.co.uk", "label": "Barclays", "why": "Major UK retail bank, and UK banking phishing is heavily SMS-driven." },
+    { "domain": "coinbase.com", "label": "Coinbase", "why": "Crypto theft is irreversible, so a successful phish has no recovery path." },
+    { "domain": "binance.com", "label": "Binance", "why": "As above, and the largest exchange by volume." },
+    { "domain": "metamask.io", "label": "MetaMask", "why": "Seed-phrase theft. The single highest-loss phishing category per victim." },
+    { "domain": "steamcommunity.com", "label": "Steam", "why": "Account and item theft, and heavily targeted at younger users." },
+    { "domain": "dhl.com", "label": "DHL", "why": "Delivery-notification pretexts work on people who are genuinely expecting a parcel." },
+    { "domain": "usps.com", "label": "USPS", "why": "As above, with a very high SMS volume in the US." },
+    { "domain": "linkedin.com", "label": "LinkedIn", "why": "Credential theft plus a convincing surface for targeting people at a named employer." }
+  ]
+}
