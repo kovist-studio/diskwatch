@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "note": "Provenance for public_suffix_list.dat, which sits beside this file. The list itself is shipped VERBATIM and unmodified, so it remains Covered Software under its own licence and no derivative work is created. Do not reformat it, minify it, or convert it to JSON: that would be a Modification under MPL 2.0 section 1.10 and would have to be licensed MPL in turn. Parse it at runtime instead, which is what suffix.js does.",
+  "source": {
+    "url": "https://publicsuffix.org/list/public_suffix_list.dat",
+    "onlyFrom": "The file header asks that the list be pulled from this URL and no other mirror or VCS site. Anything else is unsupported by the maintainers.",
+    "maintainer": "Mozilla Foundation, with rules contributed by the registries and registrars themselves.",
+    "licence": "MPL 2.0",
+    "licenceNote": "MPL 2.0 is file-level copyleft. Section 3.3 permits distributing a Larger Work under other terms provided the Covered Software keeps this licence, so this file stays MPL inside an otherwise MIT application. The notice at the top of the .dat file is part of the file and must not be stripped.",
+    "fetchedOn": "2026-08-28",
+    "listVersion": "2026-08-19_19-18-48_UTC",
+    "listCommit": "e8c9a2b2b2856b6449999dd0ec0d118f364ed0cd"
+  },
+  "refresh": {
+    "command": "npm run sync:psl",
+    "note": "Registries add and remove suffixes continuously. A stale list is not dangerous — it degrades to treating a newer suffix as a registrable domain — but it should be refreshed when convenient."
+  }
+}

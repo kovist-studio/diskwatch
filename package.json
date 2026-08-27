@@ -10,6 +10,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "sync:psl": "curl -sSfL -o src/main/checker/public_suffix_list.dat https://publicsuffix.org/list/public_suffix_list.dat && echo \"public suffix list refreshed\"",
     "sync:vendor": "cp node_modules/d3-hierarchy/dist/d3-hierarchy.js src/renderer/vendor/d3-hierarchy.js",
     "verify:vendor": "cmp node_modules/d3-hierarchy/dist/d3-hierarchy.js src/renderer/vendor/d3-hierarchy.js && echo \"vendor matches node_modules\"",
     "build": "electron-builder",

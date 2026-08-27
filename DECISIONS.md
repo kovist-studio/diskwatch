@@ -3,6 +3,62 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## V4 — The public suffix bug was harmless by luck, not by design (2026-08-28)
+
+**Decision:** Mozilla's Public Suffix List is bundled verbatim as
+`src/main/checker/public_suffix_list.dat`, and blocklist lookups walk a
+subdomain's ancestors down to the **registrable domain** and stop there.
+
+**What was wrong.** A blocklist may list a parent domain and mean everything
+beneath it, so `login.evil.example` has to check `evil.example` too. The first
+implementation walked ancestors down to two labels, because two labels is what
+a domain looks like. It is not. `barclays.co.uk` is three, and that code
+queried **`co.uk`** against the blocklists.
+
+**Why nothing broke.** No blocklist currently contains a public suffix. That is
+the only reason this never produced a wrong answer — and it is a fact about
+today's data, not a property of the code. Any of the three sources could add
+one tomorrow, by mistake or by an over-broad rule, and the app would report
+that every domain under `.co.uk` was listed. The design offered no defence; it
+was relying on other people's data staying well-formed.
+
+There is a second cost that was being paid the whole time. Each ancestor query
+is a filter lookup with a 0.1% false-positive rate, and a public suffix is a
+query that can only ever return a wrong yes — there is no right yes available.
+The bug was quietly adding false-positive surface in exchange for nothing.
+
+**Licence: MPL 2.0, and it is clean here.** The list's own header states it.
+MPL 2.0 is **file-level** copyleft, not project-level: section 3.3 permits
+distributing a Larger Work under terms of your choice provided the Covered
+Software keeps its licence. So the `.dat` file stays MPL inside an otherwise
+MIT application, and nothing conflicts.
+
+That is a genuinely different answer from the Bloom filter case, and the
+difference is worth understanding rather than pattern-matching. There, GPL-3.0
+and CC BY-SA attached to a **derived artifact** we would have distributed, and
+two copyleft licences on one artifact is a real conflict. Here we distribute
+the file **unmodified**, so no derivative exists and only that one file carries
+MPL.
+
+**Which is why it must stay verbatim.** Reformatting the list, minifying it, or
+converting it to JSON would each be a Modification under MPL 2.0 §1.10, and the
+result would have to be licensed MPL in turn. Parsing it at runtime costs a few
+milliseconds once and keeps the question from arising. `suffix.json` records
+that alongside the provenance, and a test fails the build if the licence
+notice, the version stamp, or the file's structure is stripped.
+
+**The awkward cases are the point**, and all are tested: `co.uk` and `com.au`
+are multi-label suffixes; `github.io` is a suffix owned by a company, so
+`a.b.github.io` is registrable at `b.github.io`; `*.ck` makes every label under
+it a suffix; and `!www.ck` carves one back out, because exceptions beat
+wildcards. A bare suffix returns `null` for its registrable domain, since
+nobody owns `co.uk`.
+
+**The list goes stale.** Registries add and remove suffixes continuously.
+Staleness degrades safely — a newly-created suffix is treated as a registrable
+domain, which is the old behaviour and not dangerous — and `npm run sync:psl`
+refreshes it from the one URL the maintainers support.
+
 ## V4 — RDAP widens the network allowlist, and heuristics never decide (2026-08-28)
 
 **Two decisions, recorded together because the second is what makes the first

@@ -16,6 +16,7 @@ const path = require('node:path');
 
 const { extract, refang } = require('../src/main/checker/extract');
 const { candidates } = require('../src/main/checker/check');
+const suffix = require('../src/main/checker/suffix');
 
 const RENDERER = path.join(__dirname, '..', 'src', 'renderer', 'app.js');
 const HTML = path.join(__dirname, '..', 'src', 'renderer', 'index.html');
@@ -142,10 +143,90 @@ test('text with no link yields nothing rather than a guess', () => {
 
 // --- Subdomain coverage -------------------------------------------------------
 
-test('a blocklisted parent domain covers its subdomains', () => {
-  assert.deepEqual(candidates('login.evil.example'), ['login.evil.example', 'evil.example']);
-  assert.deepEqual(candidates('evil.example'), ['evil.example']);
-  // Stops at two labels: without a public suffix list there is no way to tell
-  // evil.co.uk from co.uk.
-  assert.deepEqual(candidates('barclays.co.uk'), ['barclays.co.uk', 'co.uk']);
+test('a blocklisted parent domain covers its subdomains', async () => {
+  assert.deepEqual(await candidates('login.evil.example'), ['login.evil.example', 'evil.example']);
+  assert.deepEqual(await candidates('evil.example'), ['evil.example']);
+});
+
+// --- Public suffixes ----------------------------------------------------------
+
+test('a public suffix is never queried against the blocklists', async () => {
+  // The bug this fixes: co.uk is not a domain anybody owns, and asking whether
+  // it is blocklisted is a question with a 1-in-1000 chance of a wrong yes and
+  // no chance of a useful one.
+  assert.deepEqual(await candidates('barclays.co.uk'), ['barclays.co.uk']);
+  assert.deepEqual(await candidates('shop.com.au'), ['shop.com.au']);
+  assert.deepEqual(await candidates('myrepo.github.io'), ['myrepo.github.io']);
+
+  for (const list of [
+    await candidates('login.barclays.co.uk'),
+    await candidates('a.b.github.io'),
+    await candidates('www.shop.com.au'),
+  ]) {
+    for (const suffixName of ['co.uk', 'com.au', 'github.io', 'uk', 'au', 'io']) {
+      assert.equal(list.includes(suffixName), false, `${suffixName} must never be queried`);
+    }
+  }
+});
+
+test('the registrable domain is found for awkward suffixes', async () => {
+  const rules = await suffix.load();
+  const cases = [
+    ['barclays.co.uk', 'co.uk', 'barclays.co.uk'],
+    ['www.barclays.co.uk', 'co.uk', 'barclays.co.uk'],
+    ['shop.com.au', 'com.au', 'shop.com.au'],
+    ['myrepo.github.io', 'github.io', 'myrepo.github.io'],
+    ['a.b.github.io', 'github.io', 'b.github.io'],
+    ['evil.example', 'example', 'evil.example'],
+    ['login.evil.example', 'example', 'evil.example'],
+  ];
+  for (const [domain, wantSuffix, wantRegistrable] of cases) {
+    assert.equal(suffix.publicSuffix(domain, rules), wantSuffix, `suffix of ${domain}`);
+    assert.equal(suffix.registrableDomain(domain, rules), wantRegistrable, `registrable of ${domain}`);
+  }
+});
+
+test('a bare public suffix has no registrable domain, because nobody owns it', async () => {
+  const rules = await suffix.load();
+  for (const s of ['co.uk', 'com.au', 'github.io', 'com', 'uk']) {
+    assert.equal(suffix.registrableDomain(s, rules), null, `${s} is not a registrable domain`);
+  }
+});
+
+test('wildcard and exception rules are honoured', async () => {
+  const rules = await suffix.load();
+
+  // *.ck makes any single label under ck a suffix...
+  assert.equal(suffix.publicSuffix('foo.bar.ck', rules), 'bar.ck');
+  assert.equal(suffix.registrableDomain('foo.bar.ck', rules), 'foo.bar.ck');
+
+  // ...and !www.ck carves one back out again. Exceptions beat wildcards, and
+  // ignoring them would make a registrable domain look like a public suffix.
+  assert.equal(suffix.publicSuffix('www.ck', rules), 'ck');
+  assert.equal(suffix.registrableDomain('www.ck', rules), 'www.ck');
+});
+
+test('an unknown TLD falls back to the implicit * rule', async () => {
+  const rules = await suffix.load();
+  assert.equal(suffix.publicSuffix('some.unknown-tld-xyz', rules), 'unknown-tld-xyz');
+  assert.equal(suffix.registrableDomain('some.unknown-tld-xyz', rules), 'some.unknown-tld-xyz');
+});
+
+test('the bundled list is verbatim, with its licence notice intact', async () => {
+  const dat = await fsp.readFile(
+    path.join(__dirname, '..', 'src', 'main', 'checker', 'public_suffix_list.dat'),
+    'utf8',
+  );
+  // MPL 2.0 is file-level copyleft: the notice is part of the Covered Software
+  // and stripping it would break the terms the file is shipped under.
+  assert.match(dat, /Mozilla Public[\s\S]{0,8}License, v\. 2\.0/);
+  assert.match(dat, /^\/\/ VERSION: /m, 'the upstream version stamp must survive');
+  assert.match(dat, /===BEGIN ICANN DOMAINS===/, 'and the file must not be reformatted');
+
+  const meta = JSON.parse(
+    await fsp.readFile(path.join(__dirname, '..', 'src', 'main', 'checker', 'suffix.json'), 'utf8'),
+  );
+  assert.equal(meta.source.licence, 'MPL 2.0');
+  assert.ok(meta.source.url.startsWith('https://publicsuffix.org/'));
+  assert.ok(meta.source.fetchedOn, 'provenance must record when it was taken');
 });

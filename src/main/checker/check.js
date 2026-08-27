@@ -19,19 +19,20 @@ const { extract } = require('./extract');
 const filter = require('./filter');
 const heuristics = require('./heuristics');
 const fetcher = require('./fetch');
+const suffix = require('./suffix');
 
 // A blocklist may list a parent domain and mean everything under it, so a
-// subdomain has to be checked against its ancestors too. Stops at two labels:
-// without a public suffix list there is no way to tell evil.co.uk from co.uk,
-// and querying a public suffix risks a false positive on something nobody
-// listed. The limitation is real and is why this stops where it does.
-function candidates(domain) {
-  const labels = domain.split('.');
-  const out = [];
-  for (let i = 0; i + 2 <= labels.length; i++) {
-    out.push(labels.slice(i).join('.'));
-  }
-  return out;
+// subdomain is checked against its ancestors too — stopping at the registrable
+// domain and never below it.
+//
+// This used to stop at two labels, which was wrong for every multi-label
+// suffix: barclays.co.uk would have had co.uk queried against the blocklists.
+// It was harmless only because no list currently contains a public suffix,
+// which is a fact about today's data rather than anything the design
+// guaranteed. The Public Suffix List makes it a property of the code.
+async function candidates(domain, options = {}) {
+  const rules = await suffix.load(options);
+  return suffix.lookupNames(domain, rules);
 }
 
 async function cacheState(options = {}) {
@@ -63,7 +64,7 @@ async function cacheState(options = {}) {
 }
 
 async function checkDomain(domain, options = {}) {
-  const names = candidates(domain);
+  const names = await candidates(domain, options);
 
   let blocklist = { present: false, certain: true, sources: [], matched: null, checkedSources: 0 };
   for (const name of names) {
@@ -79,8 +80,14 @@ async function checkDomain(domain, options = {}) {
 
   const signals = await heuristics.check(domain, options);
 
+  const rules = await suffix.load(options);
+
   return {
     domain,
+    // The part somebody actually registered. Shown so a person can see that
+    // login.secure.evil.example and evil.example are the same owner, which is
+    // the whole point of the subdomain in a phishing link.
+    registrable: suffix.registrableDomain(domain, rules),
     // What the lists say, with attribution attached to each claim.
     blocklist: {
       listed: blocklist.present,
