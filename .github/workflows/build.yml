@@ -58,6 +58,69 @@ jobs:
         shell: bash
         run: ls -lh dist/
 
+      # The check the test suite structurally cannot perform. Everything else
+      # in this project runs from source, where no bundle and no signature
+      # exist, so a signing defect is invisible to all of it. v1.0.0 shipped an
+      # app macOS called "damaged" because `identity: null` skipped signing and
+      # left Electron's linker signature over a bundle it no longer described.
+      # See DECISIONS.md. This makes that class of defect a red build.
+      - name: Verify the macOS signature
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=(dist/mac*/*.app)
+          if [ ${#apps[@]} -eq 0 ]; then
+            echo "No .app was produced, so there is nothing to verify."
+            exit 1
+          fi
+
+          for app in "${apps[@]}"; do
+            echo "== $app"
+
+            # 1. The signature must actually cover the bundle it is attached to.
+            #    A skipped signing step fails here with "code has no resources
+            #    but signature indicates they must be present".
+            codesign --verify --deep --strict --verbose=2 "$app"
+
+            info=$(codesign -dvvv "$app" 2>&1)
+
+            # 2. It must identify THIS app, not the Electron binary it was
+            #    built from.
+            id=$(printf '%s\n' "$info" | sed -n 's/^Identifier=//p')
+            if [ "$id" != "app.kovist.diskwatch" ]; then
+              echo "   FAIL: Identifier is '$id', expected app.kovist.diskwatch"
+              exit 1
+            fi
+
+            # 3. linker-signed is the fingerprint of the v1.0.0 failure: the
+            #    signature Electron's linker applied, left in place because
+            #    electron-builder was told to skip signing.
+            flags=$(printf '%s\n' "$info" | sed -n 's/^CodeDirectory .*flags=\([^ ]*\).*/\1/p')
+            case "$flags" in
+              *linker-signed*)
+                echo "   FAIL: CodeDirectory flags=$flags contain linker-signed"
+                exit 1
+                ;;
+            esac
+
+            # 4. Gatekeeper must be able to ASSESS the app. "rejected" is the
+            #    correct and expected answer for software with no Developer ID,
+            #    and must not fail the build. An error means it could not be
+            #    assessed at all, which is what v1.0.0 produced.
+            assessment=$(spctl -a -vv "$app" 2>&1 || true)
+            printf '%s\n' "$assessment"
+            case "$assessment" in
+              *": rejected"*|*": accepted"*) : ;;
+              *)
+                echo "   FAIL: spctl could not assess the app"
+                exit 1
+                ;;
+            esac
+
+            echo "   OK: valid, $id, flags=$flags, assessable by Gatekeeper"
+          done
+
       # Only the installers travel onward. The unpacked app directories and the
       # auto-update blockmaps are build intermediates, and checksumming a
       # 373 MB unpacked tree would bury the two lines users actually need.
