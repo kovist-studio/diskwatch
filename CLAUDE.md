@@ -35,8 +35,15 @@ remove. Plus a scam-link checker in v4.
   Disk Access, and this app asks for no permission anywhere. Both are recorded
   in the `excluded` list in targets.json with the reasoning; do not re-propose
   them.
-- No network calls at all until v4, and then only to fetch blocklists.
-  No telemetry, no analytics, no crash reporting, no remote fonts, no CDNs.
+- No network calls at all except ONE: src/main/checker/fetch.js, fetching the
+  blocklist URLs written in src/main/checker/sources.json and nothing else. A
+  URL from any other origin is a hard error, not a request. HTTPS only, never
+  a redirect to http. No telemetry, no analytics, no crash reporting, no
+  remote fonts, no CDNs, and no network access from the renderer at all.
+- Never ship a Bloom filter or any other structure derived from the
+  blocklists. Two sources are copyleft (GPL-3.0, CC BY-SA 4.0), so a
+  distributed derivative would have to carry both. Each install fetches and
+  builds its own. See DECISIONS.md before "optimising" this.
 - System fonts only. Never load a webfont.
 - Cleanup only touches paths listed in src/main/cleaner/targets.json.
 - No security score, no threat counts, no urgency language in any UI copy.

@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "note": "Every URL this application is permitted to contact, as data rather than code. src/main/checker/fetch.js will request a URL only if it appears verbatim in this file; anything else is a hard error, not a request. Sizes and counts were measured on 2026-08-28 and will drift — they are recorded to show the order of magnitude, not as a contract.",
+  "refreshIntervalHours": 24,
+  "sources": [
+    {
+      "id": "phishdestroy",
+      "label": "PhishDestroy",
+      "url": "https://cdn.jsdelivr.net/gh/phishdestroy/destroylist@main/rootlist/formats/primary_active/hosts.txt",
+      "format": "hosts",
+      "licence": "MIT",
+      "attribution": "PhishDestroy — https://github.com/phishdestroy/destroylist",
+      "maintainer": "The PhishDestroy project, running since 2019. Curated active scam and phishing domains, published to GitHub and served through the jsDelivr CDN, which imposes no rate limits.",
+      "measured": { "on": "2026-08-28", "bytes": 3691440, "entries": 120717 }
+    },
+    {
+      "id": "jarelllama-scam",
+      "label": "Scam Blocklist",
+      "url": "https://raw.githubusercontent.com/jarelllama/Scam-Blocklist/main/lists/wildcard_domains/scams.txt",
+      "format": "domains",
+      "licence": "GPL-3.0",
+      "attribution": "jarelllama/Scam-Blocklist — https://github.com/jarelllama/Scam-Blocklist (GPL-3.0)",
+      "maintainer": "jarelllama on GitHub. Focuses on newly registered scam domains, retrieved from search engine results and threat feeds rather than from user reports alone.",
+      "measured": { "on": "2026-08-28", "bytes": 9947809, "entries": 468729 }
+    },
+    {
+      "id": "cyberhost-malware",
+      "label": "CyberHost Malware & Phishing Blocklist",
+      "url": "https://lists.cyberhost.uk/malware.txt",
+      "format": "domains-commented",
+      "licence": "CC BY-SA 4.0",
+      "attribution": "CyberHost Malware & Phishing Blocklist — https://cyberhost.uk/malware-blocklist/ — licensed CC BY-SA 4.0",
+      "maintainer": "CyberHost (cyberhost.uk). Aggregated from public threat intelligence, infosec communities and user submissions. Every entry is preceded by a comment naming the source it came from and the date it was added, which is why the file has roughly twice as many lines as domains.",
+      "measured": { "on": "2026-08-28", "bytes": 5054805, "entries": 75220 }
+    }
+  ],
+  "excluded": [
+    {
+      "id": "phishing-army",
+      "url": "https://phishing.army/download/phishing_army_blocklist_extended.txt",
+      "licence": "CC BY-NC 4.0",
+      "reason": "NonCommercial. DiskWatch is MIT, which permits commercial use downstream and cannot be revoked, so shipping code that fetches this feed would walk a commercial user into violating its terms. The OSI and the FSF both treat NC as non-free for this reason. It was the second-largest source considered (156,735 entries on 2026-08-28) and is deliberately absent rather than merely unlisted. Do not re-propose it without a licence change at the source."
+    }
+  ]
+}

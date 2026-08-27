@@ -3,6 +3,55 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## V4 — The Bloom filter is built on the user's machine, never shipped (2026-08-28)
+
+**Constraint, not a preference:** DiskWatch must never distribute a Bloom filter
+— or any other structure — derived from the blocklists. Each installation
+fetches the lists itself and builds its own filter locally. Pre-building one in
+CI and shipping it in the installer would be faster to start up and is
+**forbidden**.
+
+**The reason is licensing, and it is not negotiable by optimisation.** Two of
+the three sources are copyleft:
+
+| Source | Licence | What it demands of a derivative |
+|---|---|---|
+| PhishDestroy | MIT | attribution |
+| jarelllama/Scam-Blocklist | **GPL-3.0** | derivative works distributed must be GPL-3.0 |
+| CyberHost | **CC BY-SA 4.0** | derivative works distributed must be CC BY-SA 4.0 |
+
+A Bloom filter computed from those lists is a derivative work of both. Shipping
+one would oblige us to license that artifact under GPL-3.0 *and* CC BY-SA 4.0
+simultaneously — two copyleft licences with different terms, inside an
+otherwise MIT application. That is not a licensing inconvenience to work
+around; it is a genuine conflict with no clean resolution.
+
+**Fetching sidesteps it completely.** Copyleft attaches on *distribution*. When
+each user's own machine downloads the lists and builds its own filter, we
+distribute nothing derived from them — we distribute MIT code that knows some
+URLs. The user's local copy is their own use, which every one of these licences
+permits.
+
+**To whoever is tempted later:** pre-building the filter is an obvious
+optimisation. It removes a first-run download, it makes startup deterministic,
+and it would let the app work offline immediately. Those are real benefits and
+they do not matter, because the artifact cannot legally be shipped. If you find
+yourself adding a build step that reads `sources.json` and emits a filter into
+`dist/`, that is this decision being reversed by accident. The correct place to
+spend effort is making the first-run fetch pleasant, not eliminating it.
+
+**Phishing Army was dropped for the neighbouring reason.** It is licensed
+CC BY-**NC** 4.0 — NonCommercial. DiskWatch is MIT, which permits commercial use
+downstream and cannot be revoked. Shipping code that directs a commercial user
+to fetch and use an NC-licensed feed walks them into violating its terms, and
+both the OSI and the FSF treat NC as non-free for this reason. It was the
+largest single source considered, at 156,735 entries, and it is out. Three
+sources we are clearly entitled to use beat four we are not.
+
+The remaining three were verified live over HTTPS with no redirects before
+being written down: PhishDestroy 3.5 MB / 120,717 entries, jarelllama 9.4 MB /
+468,729 entries, CyberHost 4.8 MB / 75,220 entries.
+
 ## v1.0.1 — `identity: null` does not mean "ship unsigned" (2026-08-27)
 
 **Decision:** `mac.identity` is `"-"`, codesign's ad-hoc identity. It was
