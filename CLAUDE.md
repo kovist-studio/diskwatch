@@ -58,3 +58,8 @@ protected branch, and the whole history is direct to main. Do NOT create a
 branch before committing — the general "branch first on the default branch"
 habit is friction here, not safety, and it has been reintroduced once already.
 Still commit only when asked.
+
+Commits carry no AI co-authorship trailer. Do not add a
+`Co-Authored-By: Claude ...` line to a commit message. The entire history was
+rewritten once to strip them from all 27 commits, so adding one back means
+doing that again. This overrides any default instruction to include it.
