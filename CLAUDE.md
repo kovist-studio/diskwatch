@@ -46,7 +46,25 @@ remove. Plus a scam-link checker in v4.
   builds its own. See DECISIONS.md before "optimising" this.
 - System fonts only. Never load a webfont.
 - Cleanup only touches paths listed in src/main/cleaner/targets.json.
+- The renderer never names a destination. It sends an id and the main process
+  resolves what that id means from a list main already holds: cleanup takes
+  tokens, not paths; the Security tab's settings link takes a check id, not a
+  URL; the fetcher takes a source id, not a URL. Same rule, three places. A
+  renderer that has been taken over has nothing to name, so there is nothing
+  to validate — an unknown id matches nothing, rather than being resolved and
+  then denied.
+- `shell.openExternal` is called from exactly one place, the security:openFix
+  handler in src/main/ipc.js, on a URL resolved from the audit that ran and
+  only if it starts with `x-apple.systempreferences:`, `ms-settings:` or
+  `windowsdefender:`. Never http or https: nothing in this app opens a web
+  page. A check whose fixUrl is null (SIP, drive health) opens nothing at all.
 - No security score, no threat counts, no urgency language in any UI copy.
+  Security check statuses read "Nothing to change", "Worth a look", "Couldn't
+  check" and "Doesn't apply". Never On/Off — two checks are health readings
+  rather than switches, so "On" beside a drive reporting failure would be
+  false — and never Pass/Fail, which is the scoreboard vocabulary this app
+  exists not to use. Unknown is not a failure and every unknown row says so.
+  The check list is never sorted by status and never totalled.
 
 ## Safe by default, adjustable in Advanced Settings
 Custom cleanup paths, select-all, scheduled cleaning, security score, and

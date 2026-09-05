@@ -3,6 +3,116 @@
 A short log of non-obvious design decisions and the reasoning behind them.
 Newest first.
 
+## V2 — Four statuses, and why none of them is "On" (2026-09-05)
+
+**Decision:** the Security tab renders each check's status as one of four
+phrases — **Nothing to change**, **Worth a look**, **Couldn't check**,
+**Doesn't apply** — derived from `status` alone. The list is never sorted by
+status and never totalled.
+
+**"On" and "Off" were the obvious pair and they are wrong.** Not every check is
+a switch. One of the six macOS checks is a reading rather than a setting —
+drive health, which comes back `SMART status: Verified` or `Failing` — and the
+Windows audit has the same shape in `disks`. "Drive health (SMART) — On" is
+meaningless, and "Off" beside a drive that reports itself failing is flatly
+false. The platform modules' own vocabulary ("pass — the protection is on") is
+a switch vocabulary,
+and it does not survive contact with the checks that are not switches. A status
+column may not state something false about any of its rows, and one in six is
+not a rounding error.
+
+**"Pass" and "Fail" were worse.** That is the scoreboard vocabulary, and the
+word FAIL in a column beside disk encryption is precisely the register this app
+exists not to use. It also reintroduces the grade that `security/index.js`
+refuses to compute, one row at a time.
+
+**Others considered and rejected.** *Yes/No* is never false — it answers the
+label read as a question — but a bare "Yes" at the end of a row is cryptic
+without the question mark to anchor it. *"As it should be" / "Not as it should
+be"* is true of switches and readings alike, but the two are nearly identical
+at a glance, which defeats the only job the column has: being scannable down
+the left-to-right sweep. The four chosen are each true of a switch and of a
+reading, and no two look alike.
+
+**Unknown is not a failure, and one word cannot carry that.** "Couldn't check"
+says what happened, but the point is easy to skim past, so every unknown row
+also carries a standing line: *this is not something found, it is something
+DiskWatch could not read, so it says nothing either way*. It is attached by
+status rather than by check id, so a new check that comes back unknown inherits
+it without anyone remembering to add it.
+
+**Nothing is ranked and nothing is added up.** Rows appear in the order the
+audit returned them, which is the order the checks were declared. Sorting the
+failures to the top is a scoreboard with the numbers filed off, and there is no
+scale these six answers share that a total could be computed on — the list says
+so in one line, so an order that looks arbitrary is explained rather than left
+to be puzzled over. `test/security-ui.test.js` fails the build on `.sort`,
+`.reduce` and `.filter` anywhere in the view.
+
+**No red.** The palette has an `--alert` token and it stays unused in this view,
+as it is in the Check tab. A failing check is amber — the same signal colour as
+a hovered treemap rectangle and a caution row in cleanup. The strongest thing
+this app has to report is that a drive says it is failing, and the row says
+that in words, at body size.
+
+The status word was also dropped from the `microlabel` treatment used elsewhere
+for section headings. Uppercase with letter-spacing turned five identical
+passing rows into a column of badges shouting the same thing, which is a
+different way of being loud.
+
+## V2 — The renderer names a check, never a destination (2026-09-05)
+
+**Decision:** `security:openFix` takes a **check id**. The main process
+resolves the settings URL from the audit that actually ran, and refuses three
+things rather than opening them: an id no audit produced, an id whose check has
+no settings pane, and a URL outside `x-apple.systempreferences:`,
+`ms-settings:` and `windowsdefender:`. http and https are absent on purpose —
+nothing in this app opens a web page.
+
+**This is the same rule for the third time.** Cleanup takes tokens, not paths
+(*V3 — The renderer is never told a path*). The fetcher takes a source id, not
+a URL, and `test/checker.test.js` has a case named "refresh has no way to be
+handed a URL". Now the settings link takes a check id, not a URL. In all three
+the renderer names a thing and the main process resolves what that thing means
+from a list it already holds.
+
+**Why the shape rather than validation.** Validating a URL the renderer sends
+means resolving it and then denying it, and it means keeping the allowlist on
+both sides where the two can drift. With ids there is nothing to validate: an
+unknown id matches nothing. `/etc/passwd` is not refused as a dangerous path,
+it is refused for not being a token; `https://evil.example` is not refused as a
+dangerous URL, it is refused for not being a check id. The dangerous case never
+reaches code that would have to reason about it.
+
+**Why it matters more here than elsewhere.** `shell.openExternal` is the one
+call in this app that hands a string to the operating system and asks it to act
+on it. It is worth exactly one place in the codebase, with the destination
+resolved rather than received.
+
+**The pane registry is refilled by every audit and cleared first**, so a
+destination cannot outlive the audit that named it — the same reason
+`remove.js` resets its ledger at the start of every survey. A check whose
+`fixUrl` is null never puts an entry there at all, which is how SIP and drive
+health are prevented from opening a pane rather than merely not offered one:
+SIP is set from macOS Recovery and drive health is read in Disk Utility, and a
+link to a pane without the switch sends someone hunting for a control that is
+not there.
+
+**The renderer does still receive `fixUrl`, and that is not a hole.** It reads
+it for two things — whether a row gets a link at all, and which app to name on
+the button — and never sends it anywhere. The property that matters is what the
+main process *accepts*, not what the renderer *holds*: the URL could be edited
+in the renderer to anything at all and the only effect would be a button with
+the wrong label on it, because the id is what crosses. This is the same
+distinction as *V3*: the guarantee is a property of the channel, not a
+convention kept by whoever writes the next view.
+
+Verified against this machine by driving the real handler: every check with a
+pane opens exactly its own URL and nothing else, every check without one opens
+nothing, and the FileVault pane identifier does open Privacy & Security on
+macOS 26 — a wrong identifier fails silently, which is the worst way for this
+to be wrong.
+
 ## V4 — The public suffix bug was harmless by luck, not by design (2026-08-28)
 
 **Decision:** Mozilla's Public Suffix List is bundled verbatim as
@@ -467,7 +577,10 @@ at `src/main/index.js:9` rather than on a new mechanism.
 before the rule was written, and it came back clean. `src/` contains exactly
 five `console.*` calls: four in `src/main/security/cli.js`, which is the
 `npm run audit` dev CLI and never ships, and one in `src/main/ipc.js` that logs
-`formatAudit(audit)` from the main process. Running the audit confirms its
+`formatAudit(audit)` from the main process. *(Amended 2026-09-05: that fifth
+call is gone. It existed because the audit had no UI and the console was its
+readout; the Security tab is now that readout. Four remain, all in the dev
+CLI.)* Running the audit confirms its
 output is prose about FileVault, SIP, Gatekeeper, the firewall and SMART, with
 no home directory and no volume paths in it. That line is also unreachable
 today: nothing in the renderer calls `security.audit()` yet. `crashReporter`
