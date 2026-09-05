@@ -9,7 +9,7 @@ else will). The whole thing is about fifteen minutes, most of it waiting.
 # 1. Bump the version. This is what names the installers.
 #    package.json "version": "X.Y.Z"
 
-npm test                # 229 tests, must be green
+npm test                # 319 tests, must be green
 npm run verify:vendor   # vendored d3-hierarchy still matches node_modules
 
 git add -A && git commit -m "..." && git push origin main
@@ -70,7 +70,7 @@ Then verify the published sums against the bytes actually served:
 ```sh
 cd "$(mktemp -d)"
 gh release download vX.Y.Z --repo kovist-studio/diskwatch
-shasum -a 256 -c SHA256SUMS.txt     # three lines, all OK
+shasum -a 256 -c SHA256SUMS.txt     # five lines, all OK
 ```
 
 This is the only check that proves the checksums describe what a user
