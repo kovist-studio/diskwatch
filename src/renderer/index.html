@@ -205,14 +205,57 @@
           data-view="security"
           hidden
         >
-          <div class="empty">
-            <p class="microlabel">Security</p>
-            <h2 class="empty__title">See what’s protecting this disk.</h2>
-            <p class="empty__body">
-              This is where you’ll find out whether your disk is encrypted and what’s guarding it.
-              Coming in a later version.
+          <header class="view__head">
+            <p class="microlabel" id="security-status">Nothing checked yet</p>
+            <!-- The promise this whole tab rests on, kept on screen at every
+                 stage: it only reads, and it never prompts for admin. -->
+            <p class="reassure" id="security-reassure">
+              These checks only read. Nothing here changes a setting, and nothing asks for
+              administrator rights — anything that would need them is reported as unread
+              rather than prompting you for a password.
             </p>
+          </header>
+
+          <!-- Empty: what this looks at, and the one thing you can do next. -->
+          <div class="stage" id="security-stage-empty">
+            <div class="empty">
+              <h2 class="empty__title">See what’s protecting this disk.</h2>
+              <p class="empty__body">
+                DiskWatch asks this machine what it already knows about itself — whether the
+                disk is encrypted, what apps go through before they open, what the drive
+                says about its own health.
+              </p>
+              <p class="empty__body">
+                The answers are listed one per line, and they are not added up. Each one
+                means something different, so a single figure would hide more than it said.
+              </p>
+              <p class="empty__hint microlabel">Run the checks to see where this machine stands</p>
+            </div>
           </div>
+
+          <!-- The list. One row per check, in the order the checks were
+               declared — never sorted by status. -->
+          <div class="stage" id="security-stage-list" hidden>
+            <div class="checks" id="security-checks" role="list" aria-label="Checks"></div>
+            <p class="note" id="security-note" hidden></p>
+          </div>
+
+          <!-- No audit exists for this operating system, or the audit itself
+               could not run. Both are statements about DiskWatch, not about the
+               machine, and neither is rendered as a finding. -->
+          <div class="stage" id="security-stage-message" hidden>
+            <div class="empty">
+              <h2 class="empty__title" id="security-message-title"></h2>
+              <p class="empty__body" id="security-message-body"></p>
+            </div>
+          </div>
+
+          <footer class="view__foot">
+            <div class="actions">
+              <button class="btn btn--primary" id="security-run">Run the checks</button>
+              <button class="btn btn--primary" id="security-again" hidden>Check again</button>
+            </div>
+          </footer>
         </section>
 
         <section

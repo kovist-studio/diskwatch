@@ -1305,6 +1305,227 @@
     return { showEmpty, setReassurance };
   })();
 
+  // ---------- Security ----------
+  //
+  // The answers this machine gives about itself, listed one per line. They are
+  // not added up, not sorted, and not graded. Each check asks a different
+  // question, so there is no scale they share and no total that would mean
+  // anything — and a checklist that sorts its failures to the top is a
+  // scoreboard with the numbers filed off.
+  //
+  // The audit runs only when asked. An app that greets you with findings
+  // before you have asked it anything is a nag, and security:audit in the main
+  // process says the same from the other side.
+  //
+  // The renderer reads `fixUrl` for exactly two things: whether a row gets a
+  // link at all, and which app that link should name. Following it sends the
+  // CHECK ID over IPC and nothing else — main resolves the destination from
+  // the audit it ran, so there is no path here that can name a place for the
+  // operating system to open. Same shape as cleanup sending tokens, not paths.
+  const security = (function () {
+    const stages = {
+      empty: el('security-stage-empty'),
+      list: el('security-stage-list'),
+      message: el('security-stage-message'),
+    };
+
+    const buttons = {
+      run: el('security-run'),
+      again: el('security-again'),
+    };
+
+    const elStatus = el('security-status');
+    const elList = el('security-checks');
+    const elNote = el('security-note');
+
+    // The four statuses in the person's words rather than the module's.
+    //
+    // Deliberately not "On" and "Off": two of these checks are not switches. A
+    // drive is not on, it is healthy or it is failing, and a column that read
+    // "On" beside a failing drive would be false. These four are true of a
+    // switch and of a reading alike.
+    //
+    // Unknown is the one that matters. It is NOT a failure and must never read
+    // as one — it means the answer could not be read, because the command is
+    // absent, or timed out, or would need administrator rights this app does
+    // not ask for. Every unknown row says so underneath in as many words.
+    const STATUS_WORD = {
+      pass: 'Nothing to change',
+      fail: 'Worth a look',
+      unknown: 'Couldn’t check',
+      na: 'Doesn’t apply',
+    };
+
+    const UNKNOWN_CAVEAT =
+      'This is not something found. It is something DiskWatch could not read, so it says ' +
+      'nothing either way.';
+
+    // Why the order never changes, said once rather than left to be inferred
+    // from a list that looks arbitrary.
+    const ORDER_NOTE =
+      'These stay in the same order on every machine and after every run. Nothing is moved ' +
+      'to the top, because these answers are not ranked against each other.';
+
+    function span(className, text) {
+      const s = document.createElement('span');
+      s.className = className;
+      s.textContent = text;
+      return s;
+    }
+
+    function setStage(name) {
+      Object.keys(stages).forEach((k) => {
+        if (stages[k]) stages[k].hidden = k !== name;
+      });
+    }
+
+    function setActions(visible) {
+      Object.keys(buttons).forEach((k) => {
+        const btn = buttons[k];
+        if (!btn) return;
+        btn.hidden = !visible[k];
+        btn.disabled = false;
+      });
+    }
+
+    // What the link opens, named by the app you will land in. The scheme is
+    // all the renderer knows about the destination, and all it needs: an
+    // unrecognised one gets no button, because main would refuse to open it
+    // and a button that quietly does nothing is worse than no button.
+    function fixLabel(fixUrl) {
+      if (typeof fixUrl !== 'string') return null;
+      if (fixUrl.startsWith('x-apple.systempreferences:')) return 'Open System Settings';
+      if (fixUrl.startsWith('windowsdefender:')) return 'Open Windows Security';
+      if (fixUrl.startsWith('ms-settings:')) return 'Open Settings';
+      return null;
+    }
+
+    // ---------- Rows ----------
+
+    function makeRow(check) {
+      const row = document.createElement('div');
+      row.className = `check check--${check.status}`;
+      row.setAttribute('role', 'listitem');
+
+      const top = document.createElement('div');
+      top.className = 'check__top';
+
+      const text = span('check__text', '');
+      text.appendChild(span('check__label', check.label));
+      // The detail is the module's own sentence, shown as written. It was
+      // authored per outcome by the code that read the machine; rewording it
+      // here would be the renderer guessing at something it did not see.
+      text.appendChild(span('check__detail', check.detail));
+      if (check.status === 'unknown') text.appendChild(span('check__caveat', UNKNOWN_CAVEAT));
+
+      top.appendChild(text);
+      top.appendChild(span('check__status', STATUS_WORD[check.status] || STATUS_WORD.unknown));
+      row.appendChild(top);
+
+      // A link only where a settings pane holds the actual switch. SIP is set
+      // from macOS Recovery and drive health is read in Disk Utility, so both
+      // record a null fixUrl and get nothing here: a link to a pane without
+      // the control sends someone hunting for a switch that is not there.
+      const label = fixLabel(check.fixUrl);
+      if (label) row.appendChild(makeFixButton(check.id, label, row));
+
+      return row;
+    }
+
+    function makeFixButton(checkId, label, row) {
+      const fix = document.createElement('button');
+      fix.type = 'button';
+      fix.className = 'btn btn--ghost check__fix';
+      fix.textContent = label;
+
+      let said = false;
+      fix.addEventListener('click', async () => {
+        fix.disabled = true;
+        // The id, never the URL. There is no overload that takes one.
+        const result = await api.security.openFix(checkId);
+        fix.disabled = false;
+        if (result && result.ok) return;
+        if (said) return;
+        said = true;
+        row.appendChild(span('check__caveat', 'That settings pane could not be opened from here.'));
+      });
+
+      return fix;
+    }
+
+    function renderChecks(checks) {
+      elList.textContent = '';
+      // In the order the audit returned them. There is no sort here and there
+      // must not be one.
+      for (const check of checks) elList.appendChild(makeRow(check));
+      elNote.hidden = checks.length === 0;
+      elNote.textContent = ORDER_NOTE;
+    }
+
+    // ---------- Running the audit ----------
+
+    function checkedAt() {
+      return new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    }
+
+    async function run() {
+      elStatus.textContent = 'Checking…';
+      Object.keys(buttons).forEach((k) => {
+        if (buttons[k]) buttons[k].disabled = true;
+      });
+
+      let audit = null;
+      try {
+        audit = await api.security.audit();
+      } catch (err) {
+        audit = null;
+      }
+
+      if (!audit) {
+        showMessage(
+          'The checks could not be run.',
+          'DiskWatch could not ask this machine about itself. Nothing was changed either way.',
+        );
+        elStatus.textContent = 'Not checked';
+        return;
+      }
+
+      if (!audit.supported) {
+        showMessage(
+          'There are no checks for this system.',
+          audit.note || `DiskWatch does not have a security audit for ${audit.platform}.`,
+        );
+        elStatus.textContent = 'Nothing to check';
+        return;
+      }
+
+      renderChecks(audit.checks || []);
+      setStage('list');
+      setActions({ again: true });
+      elStatus.textContent = `Checked at ${checkedAt()}`;
+    }
+
+    function showMessage(title, body) {
+      el('security-message-title').textContent = title;
+      el('security-message-body').textContent = body;
+      setStage('message');
+      setActions({ again: true });
+    }
+
+    function showEmpty() {
+      setStage('empty');
+      setActions({ run: true });
+      elStatus.textContent = 'Nothing checked yet';
+    }
+
+    // ---------- Wiring ----------
+
+    if (buttons.run) buttons.run.addEventListener('click', run);
+    if (buttons.again) buttons.again.addEventListener('click', run);
+
+    return { showEmpty };
+  })();
+
   // ---------- Check ----------
   //
   // THE WORDING RULE, which outranks every other consideration in this view:
@@ -1568,6 +1789,7 @@
   });
 
   showEmpty();
+  security.showEmpty();
   clean.showEmpty();
   check.load();
 })();

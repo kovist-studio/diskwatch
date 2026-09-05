@@ -177,6 +177,7 @@ p {
 }
 
 .view[data-view="scan"],
+.view[data-view="security"],
 .view[data-view="clean"] {
   display: flex;
   flex-direction: column;
@@ -925,6 +926,102 @@ p {
   color: var(--text-dim);
   font-size: 12px;
   word-break: break-all;
+}
+
+/* ---------- Security ---------- */
+/* One row per check, in the order the checks were declared. Nothing here is
+   sorted by status and nothing is totalled: a list that puts the failures at
+   the top is a scoreboard with the numbers filed off, and the four statuses do
+   not share a scale that could be added up anyway.
+
+   Note what is absent — there is no red in this view. The palette has an
+   --alert token and it stays unused here on purpose: a checklist that turns
+   red is how scareware asks for money, and the strongest thing this app has to
+   report is that a drive says it is failing, which the row states in words. */
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
+}
+
+.check {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.check__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.check__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.check__label {
+  color: var(--text);
+}
+
+.check__detail {
+  color: var(--text-dim);
+  font-size: 13px;
+  max-width: 78ch;
+}
+
+/* The one point that has to survive being skim-read: an unanswered check is
+   not a finding. Sized like the detail above it, because it is a fact about
+   the check rather than a warning about the machine. */
+.check__caveat {
+  color: var(--text-dim);
+  font-size: 13px;
+  font-style: italic;
+  max-width: 78ch;
+}
+
+/* Four phrases, four appearances, so the column can be read down at a glance.
+   Sentence case and no letter-spacing on purpose: the microlabel treatment
+   used elsewhere for section headings turns a repeated status into a row of
+   badges shouting the same word, which is the register this app avoids. It is
+   an annotation on the row, sized under the label it annotates. */
+.check__status {
+  flex: none;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.check--pass .check__status {
+  color: var(--ok);
+}
+
+/* Amber, the same signal colour as a hovered rectangle and a caution row.
+   Loud enough to find, quiet enough not to shout. */
+.check--fail .check__status {
+  color: var(--signal);
+}
+
+/* Could not be read, and does not apply, are both quieter than either answer.
+   Neither is styled as an all-clear, because neither is one. */
+.check--na {
+  opacity: 0.55;
+}
+
+.check__fix {
+  align-self: flex-start;
 }
 
 /* ---------- Check ---------- */

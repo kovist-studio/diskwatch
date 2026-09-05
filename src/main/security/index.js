@@ -41,6 +41,22 @@ async function runAudit() {
   };
 }
 
+// The only URL schemes this app will ever hand to the operating system, and
+// the reason the renderer is never allowed to name one. Every scheme here
+// opens a settings surface on this machine: none of them can reach the
+// network, and http/https are deliberately absent — a disk audit has no
+// business opening a web page. See the security:openFix channel in ipc.js,
+// which resolves an id to one of these and refuses everything else.
+const SETTINGS_SCHEMES = [
+  'x-apple.systempreferences:', // macOS System Settings panes
+  'ms-settings:', // Windows Settings pages
+  'windowsdefender:', // the Windows Security app
+];
+
+function isSettingsUrl(url) {
+  return typeof url === 'string' && SETTINGS_SCHEMES.some((scheme) => url.startsWith(scheme));
+}
+
 const SYMBOL = { pass: '+', fail: '-', unknown: '?', na: '.' };
 
 // Plain-text rendering for the console, until the UI phase. Ordered as the
@@ -65,4 +81,4 @@ function formatAudit(audit) {
   return lines.join('\n');
 }
 
-module.exports = { runAudit, formatAudit };
+module.exports = { runAudit, formatAudit, isSettingsUrl, SETTINGS_SCHEMES };

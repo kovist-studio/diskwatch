@@ -12,6 +12,7 @@ const CH = {
   scanProgress: 'scan:progress',
   reveal: 'shell:reveal',
   securityAudit: 'security:audit',
+  securityOpenFix: 'security:openFix',
   cleanerSurvey: 'cleaner:survey',
   cleanerRemove: 'cleaner:remove',
   cleanerProgress: 'cleaner:progress',
@@ -55,6 +56,17 @@ const api = {
     // Resolves to { platform, supported, checks[] }. Read-only: running this
     // never changes a setting and never asks for elevation.
     audit: () => ipcRenderer.invoke(CH.securityAudit),
+
+    // Ask the OS to open the settings pane a check points at.
+    //
+    // Takes the CHECK ID, never a URL. There is deliberately no overload here
+    // that accepts one: main resolves the destination from the audit it ran,
+    // so the renderer cannot name a place for the OS to open — the same reason
+    // cleaner.remove takes tokens rather than paths.
+    //
+    // Resolves to { ok: true }, or { ok: false, reason } for a check that has
+    // no settings pane. SIP and drive health are the two that never do.
+    openFix: (checkId) => ipcRenderer.invoke(CH.securityOpenFix, checkId),
   },
 
   cleaner: {

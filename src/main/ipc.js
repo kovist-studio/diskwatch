@@ -3,7 +3,7 @@
 const { ipcMain, dialog, shell } = require('electron');
 const os = require('node:os');
 const { startScan, cancelScan } = require('./scanner');
-const { runAudit, formatAudit } = require('./security');
+const { runAudit, isSettingsUrl } = require('./security');
 const { getSurface } = require('./surface');
 const cleaner = require('./cleaner');
 const remover = require('./cleaner/remove');
@@ -20,6 +20,7 @@ const CH = {
   scanProgress: 'scan:progress',
   reveal: 'shell:reveal',
   securityAudit: 'security:audit',
+  securityOpenFix: 'security:openFix',
   cleanerSurvey: 'cleaner:survey',
   cleanerRemove: 'cleaner:remove',
   cleanerProgress: 'cleaner:progress',
@@ -68,6 +69,22 @@ function assertTokenArray(value, name) {
     }
   }
   return value;
+}
+
+// id -> settings URL, refilled by every audit and by nothing else. This is the
+// whole allowlist for security:openFix: a check that ran and reported a pane
+// is the only thing that can put an entry here, and a check whose fixUrl is
+// null never does. Cleared first, so a pane cannot outlive the audit that
+// named it — the same reason the cleanup ledger is reset per survey.
+const settingsPanes = new Map();
+
+function rememberSettingsPanes(checks) {
+  settingsPanes.clear();
+  for (const check of checks || []) {
+    if (check && typeof check.id === 'string' && isSettingsUrl(check.fixUrl)) {
+      settingsPanes.set(check.id, check.fixUrl);
+    }
+  }
 }
 
 function registerIpcHandlers() {
@@ -142,9 +159,40 @@ function registerIpcHandlers() {
   // does not nag.
   ipcMain.handle(CH.securityAudit, async () => {
     const audit = await runAudit();
-    // No UI yet — the console is the readout for this phase.
-    console.log(formatAudit(audit));
+    rememberSettingsPanes(audit.checks);
     return audit;
+  });
+
+  // Open the System Settings pane a check points at.
+  //
+  // Takes a CHECK ID, never a URL — the same shape of guarantee the cleanup
+  // channel makes about paths. The renderer cannot name a destination, so
+  // there is no code path here where a renderer decides what the OS opens; it
+  // names a check, and this resolves the URL from the audit that actually ran.
+  //
+  // Three things are therefore refused rather than opened: an id no audit has
+  // produced, an id whose check has no settings pane at all (SIP is set from
+  // Recovery, drive health from Disk Utility — both record null), and a URL
+  // that is not one of the settings schemes. The last one cannot happen from
+  // our own modules; it is there so that it still cannot happen if one of them
+  // is changed carelessly later.
+  //
+  // A refusal RESOLVES with { ok: false, reason }. Only a malformed argument
+  // throws, matching every other channel here: shape is a caller contract,
+  // outcome is data.
+  ipcMain.handle(CH.securityOpenFix, async (_event, checkId) => {
+    assertNonEmptyString(checkId, 'checkId');
+
+    const url = settingsPanes.get(checkId);
+    if (!url) return { ok: false, reason: 'no-settings-pane' };
+    if (!isSettingsUrl(url)) return { ok: false, reason: 'not-a-settings-pane' };
+
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: 'could-not-open', detail: err && err.message ? err.message : String(err) };
+    }
   });
 
   // ---------- Cleanup ----------
