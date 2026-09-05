@@ -269,7 +269,26 @@ async function refresh(options = {}) {
   const skipped = [];
   const failed = [];
 
-  const budgetEnds = now + (options.totalBudgetMs || TOTAL_BUDGET_MS);
+  // Elapsed wall-clock time, deliberately NOT derived from `now`.
+  //
+  // The two clocks in this function answer different questions and must not be
+  // mixed. `now` is a LOGICAL timestamp: it decides whether a cached list is
+  // old enough to refetch and it is what gets stamped on a copy just written,
+  // so a caller may legitimately set it anywhere on the calendar. The budget
+  // is a DURATION SPENT, so it has to start and end on the same clock it is
+  // later compared against.
+  //
+  // Deriving it from `now` meant the budget read as already exhausted by
+  // exactly the distance between the injected date and the real one — so a
+  // caller passing a `now` more than two minutes in the past fetched nothing
+  // at all, and was told it had run out of time rather than that it had been
+  // given a clock the budget could not use.
+  //
+  // `??` rather than `||`, because a budget of 0 is a real answer meaning "no
+  // time at all" and `||` silently turned it into the 120-second default —
+  // which is also why the guard below had no test that could reach it.
+  const budget = options.totalBudgetMs ?? TOTAL_BUDGET_MS;
+  const budgetEnds = Date.now() + budget;
 
   for (const src of sources) {
     if (only !== null && !only.includes(src.id)) continue;

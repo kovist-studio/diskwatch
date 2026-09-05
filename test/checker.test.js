@@ -196,6 +196,49 @@ test('a fresh source is not re-fetched, and the timestamp is what makes that tru
   assert.equal(due.calls.length, 1, 'due after the interval');
 });
 
+// --- The two clocks ------------------------------------------------------------
+
+// `now` and the total budget answer different questions, and deriving one from
+// the other made a refresh with an injected `now` report that it had run out
+// of time before it made a single request. Both directions are pinned here,
+// because a fix that simply removed the budget check would also go green.
+
+test('an injected now far from the real clock does not consume the budget', async (t) => {
+  const dir = await sandbox(t);
+  const request = spy();
+
+  // Deliberately a date well outside any plausible budget — this is what a
+  // test fixture with a fixed timestamp looks like once the calendar moves
+  // past it. The budget is a duration spent, so it must be unaffected.
+  const result = await checker.refresh({
+    doc: docWith(),
+    cacheDir: dir,
+    request,
+    now: Date.parse('2001-01-01T00:00:00Z'),
+  });
+
+  assert.equal(request.calls.length, 1, 'the source is stale and must be fetched');
+  assert.deepEqual(result.failed, [], 'and nothing may be blamed on the budget');
+  assert.equal(result.fetched[0].id, 'test-source');
+
+  // The stamp on the cached copy still comes from `now` — that one IS logical.
+  const index = JSON.parse(await fsp.readFile(path.join(dir, 'index.json'), 'utf8'));
+  assert.equal(index.sources['test-source'].fetchedAt, '2001-01-01T00:00:00.000Z');
+});
+
+test('an exhausted budget still stops the loop', async (t) => {
+  const dir = await sandbox(t);
+  const request = spy();
+
+  // Zero milliseconds of budget: nothing may be attempted, and the reason
+  // given must be the budget rather than a network outcome.
+  const result = await checker.refresh({ doc: docWith(), cacheDir: dir, request, totalBudgetMs: 0 });
+
+  assert.deepEqual(request.calls, [], 'no source may be attempted');
+  assert.equal(result.failed[0].reason, REASONS.BUDGET_EXHAUSTED);
+  assert.deepEqual(result.fetched, []);
+});
+
 test('isStale treats a missing or unreadable timestamp as due', () => {
   const now = Date.parse('2026-08-28T12:00:00Z');
   assert.equal(checker.isStale(null, 24, now), true);
